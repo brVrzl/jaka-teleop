@@ -1,0 +1,3 @@
+
+# Unified diff context preserves the upstream source whitespace.
+quest_sender/*.patch -whitespace

@@ -72,7 +72,8 @@ def test_vendor_boundary_calls_only_approved_read_lifecycle_api() -> None:
         "get_actual_tcp_position", "get_robot_status_simple", "get_robot_state",
         "is_in_servomove", "is_in_estop", "is_in_collision", "get_robot_status",
         "get_tool_id", "get_tool_data", "get_user_frame_id", "get_user_frame_data",
-        "get_program_state", "get_program_info",
+        "get_program_state", "get_program_info", "get_dh_param", "get_payload", "get_installation_angle",
+        "get_tio_vout_param", "get_tio_pin_mode", "get_rs485_chn_mode", "get_rs485_chn_comm", "get_rs485_signal_info",
     }
     public_boundary = (SOURCE / "readonly_backend.hpp").read_text()
     assert "JAKAZuRobot" not in public_boundary
@@ -99,6 +100,12 @@ def test_fake_sample_stream_contains_only_measured_joint_observations(tmp_path) 
 def test_fake_repeated_initialization_and_cleanup(tmp_path) -> None:
     result, payload = run_fake(tmp_path, "--sessions", "3")
     assert result.returncode == 0
+    assert payload["state_inventory"]["tio_voltage"] is None
+    assert payload["state_inventory"]["tio_pin_mode_di_do_ai"] == [None, None, None]
+    assert payload["state_inventory"]["tio_hardware_version"] is None
+    assert payload["state_inventory"]["tio_signals_cache"] is None
+    assert payload["state_inventory"]["tio_signal_freshness_verified"] is False
+    assert payload["state_inventory"]["kinematic_dh_parameters_sdk_raw"] is None
     assert payload["sessions_completed"] == 3
     assert payload["reconnect_attempts"] == 2
     assert payload["call_statistics"]["login_out"]["count"] == 3

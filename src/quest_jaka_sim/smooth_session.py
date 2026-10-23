@@ -456,16 +456,18 @@ class SmoothQuestJakaSession:
             return True
         return False
 
-    def ingest_shared_state(self, state: CanonicalQuestState) -> bool:
+    def ingest_shared_state(self, state: CanonicalQuestState, *, pose_only: bool = False) -> bool:
         """Broadcast one already-canonical Quest sample into this policy state."""
 
+        if pose_only and state.raw_source_metadata.get("input_mode") != "right-touch-v1":
+            raise ValueError("pose-only input requires the explicit right Touch protocol")
         self._shared_input_mode = True
         self.latest_state = state
         hand = state.right
         if (
             hand.tracking_valid
             and hand.wrist_pose is not None
-            and len(hand.joints) == 21
+            and (pose_only or len(hand.joints) == 21)
             and hand.host_sequence_number is not None
             and hand.host_sequence_number != self.last_input_sequence
         ):
@@ -2181,10 +2183,12 @@ class SmoothQuestJakaSession:
     def _motion_statistics(self) -> dict[str, Any]:
         """Small aggregate diagnostics over the existing per-tick event log."""
 
+        events = list(self.event_records)  # bounded deque snapshot for report slicing
+
         predicted_peaks = np.zeros(6, dtype=float)
         velocity_hits = np.zeros(6, dtype=int)
         acceleration_hits = np.zeros(6, dtype=int)
-        for record in self.event_records:
+        for record in events:
             metrics = record.get("metrics") or {}
             predicted = metrics.get("predicted_output_joint_velocity_rad_s") or ()
             if len(predicted) == 6:
@@ -2196,24 +2200,24 @@ class SmoothQuestJakaSession:
                     acceleration_hits[int(index)] += 1
         fractions = [
             float(record["continuation_fraction"])
-            for record in self.event_records
+            for record in events
             if record.get("continuation_fraction") is not None
         ]
         backlogs = [
             (int(record["control_monotonic_ns"]), float(record["orientation_backlog_deg"]))
-            for record in self.event_records
+            for record in events
             if record.get("orientation_backlog_deg") is not None
         ]
         recovery_ms = None
         for current_index, (previous, current) in enumerate(
-            zip(self.event_records, self.event_records[1:]),
+            zip(events, events[1:]),
             start=1,
         ):
             if previous.get("arm_clutch_state") == "engaged" and current.get("arm_clutch_state") != "engaged":
                 release_ns = current.get("control_monotonic_ns")
                 if release_ns is None:
                     continue
-                for candidate in self.event_records[current_index:]:
+                for candidate in events[current_index:]:
                     if candidate.get("orientation_backlog_deg", float("inf")) <= 1.0:
                         recovery_ms = (candidate["control_monotonic_ns"] - release_ns) / 1e6
                         break

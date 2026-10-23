@@ -113,7 +113,7 @@ class QuestDatagramReceiverWorker:
                         continue
                     if self.record is not None:
                         self.record(datagram)
-                    if datagram.payload.startswith(b"CTRL,"):
+                    if datagram.payload.startswith((b"CTRL,", b"RTOUCH,")):
                         try:
                             self.queue.put_nowait(datagram)
                         except queue.Full:

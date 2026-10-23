@@ -23,6 +23,7 @@ from motion_input.transport_gate import QuestTransportGate
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--input-mode", choices=("hts-ctrl-v1", "right-touch-v1"), default="hts-ctrl-v1")
     parser.add_argument("--bind", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=9000)
     parser.add_argument(
@@ -72,6 +73,7 @@ def main(argv: list[str] | None = None) -> int:
     gate = QuestTransportGate(
         stale_after_s=args.stale_ms / 1000.0,
         started_monotonic_ns=started_ns,
+        input_mode=args.input_mode,
     )
     logger.info(
         "start transport-only gate host=%s bind=%s port=%d project_ip=%s "
@@ -171,9 +173,10 @@ def main(argv: list[str] | None = None) -> int:
     passed = (
         not missing
         and final["ctrl_packets"] > 0
-        and final["hand_packets"] > 0
+        and (final.get("valid_pose_packets", 0) > 0 if args.input_mode == "right-touch-v1"
+             else final["hand_packets"] > 0 and final["valid_controller_packets"] > 0)
         and final["malformed_ctrl"] == 0
-        and final["malformed_hand_head"] == 0
+        and final.get("malformed_hand_head", 0) == 0
         and not final["forbidden_imports"]
     )
     final["status"] = "PASS" if passed else "FAIL"

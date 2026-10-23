@@ -41,7 +41,7 @@ from teleoperation.wire import LatestTargetPublisher, StatusFlags, WorkerStatusR
 from teleoperation.output_feasibility import (
     NATIVE_DEFENSIVE_OUTPUT_JERK_LIMIT_RAD_S3,
 )
-from embodiment_core.config import load_yaml
+from embodiment_core.config import load_yaml, validate_runtime_config
 from episode_dataset.collector import CaptureState
 from episode_dataset.episode import (
     ControlSample,
@@ -438,6 +438,20 @@ def _apply_runtime_config(args: argparse.Namespace) -> None:
         if not isinstance(candidate, dict):
             raise SystemExit("runtime config must contain a mapping at root.runtime")
         runtime = candidate
+    args.quest_input_mode = runtime.get("quest_input_mode", "hts-ctrl-v1")
+    if args.quest_input_mode not in {"hts-ctrl-v1", "right-touch-v1"}:
+        raise SystemExit("unknown runtime.quest_input_mode")
+    if args.quest_input_mode == "right-touch-v1":
+        errors = validate_runtime_config(document)
+        if errors:
+            raise SystemExit("invalid runtime config before hardware I/O: " + "; ".join(errors))
+        raise SystemExit(
+            "right Touch physical output is not commissioned: the installed DH tool "
+            "identity, TCP, payload, installation, kinematics and collision geometry "
+            "must be verified and implemented; the RH56 model and 12-D collector "
+            "cannot be used. Use the input-only gate or MuJoCo --input-mode "
+            "right-touch-v1 for independent input validation."
+        )
     profile = document.get("collection_profile", runtime.get("collection_profile", "production"))
     if profile not in {"production", "diagnostic"}:
         raise SystemExit("collection_profile must be production or diagnostic")

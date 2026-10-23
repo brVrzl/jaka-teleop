@@ -1,4 +1,4 @@
-"""Live Quest CTRL routing into the simulation-only dual-clutch boundary."""
+"""Explicit Quest input routing into the shared target-generation boundary."""
 
 from __future__ import annotations
 
@@ -13,9 +13,19 @@ from motion_input.controller_provider import (
     ControllerProviderState,
 )
 from motion_input.hts_transport import ReceivedHtsDatagram
+from motion_input.hts_canonical import CanonicalQuestState
+from motion_input.right_touch import LEGACY_MODE, RIGHT_TOUCH_MODE, RightTouchInput
+
+
+class _PoseBuffer(Protocol):
+    def clear(self) -> None: ...
 
 
 class _SmoothSession(Protocol):
+    buffer: _PoseBuffer
+
+    def ingest_shared_state(self, state: CanonicalQuestState, *, pose_only: bool = False) -> bool: ...
+
     def ingest(self, datagram: ReceivedHtsDatagram) -> bool: ...
 
     def set_clutch_samples(
@@ -36,14 +46,19 @@ class LiveRouteResult:
 
 
 class LiveQuestControllerRouter:
-    """Keep HTS and CTRL parsing separate on one simulation UDP socket."""
+    """Select legacy HTS/CTRL or right Touch on the existing UDP socket."""
 
     def __init__(
         self,
         *,
         stale_after_s: float,
         released_at: float = 0.55,
+        input_mode: str = LEGACY_MODE,
     ) -> None:
+        if input_mode not in (LEGACY_MODE, RIGHT_TOUCH_MODE):
+            raise ValueError(f"unknown Quest input mode {input_mode!r}")
+        self.input_mode = input_mode
+        self.touch = RightTouchInput(stale_after_s=stale_after_s, released_at=released_at) if input_mode == RIGHT_TOUCH_MODE else None
         self.provider = ControllerProvider(stale_after_s=stale_after_s)
         self.adapter = ControllerClutchAdapter(released_at=released_at)
         self.controller_datagrams = 0
@@ -54,6 +69,15 @@ class LiveQuestControllerRouter:
     def ingest(
         self, datagram: ReceivedHtsDatagram, session: _SmoothSession
     ) -> LiveRouteResult:
+        if self.touch is not None:
+            accepted = self.touch.ingest(datagram)
+            self.last_state = self.touch.last_state
+            if accepted and self.touch.canonical is not None:
+                if self.touch.session_changed:
+                    session.buffer.clear()
+                session.ingest_shared_state(self.touch.canonical, pose_only=True)
+            self._publish_touch(session)
+            return LiveRouteResult("right_touch", accepted, self.touch.error)
         if not datagram.payload.startswith(b"CTRL"):
             self.hand_head_datagrams += 1
             accepted = session.ingest(datagram)
@@ -77,10 +101,32 @@ class LiveQuestControllerRouter:
         return LiveRouteResult("controller", True)
 
     def poll(self, now_monotonic_ns: int, session: _SmoothSession) -> None:
+        if self.touch is not None:
+            self.touch.poll(now_monotonic_ns)
+            self.last_state = self.touch.last_state
+            self._publish_touch(session)
+            return
         self.last_state = self.provider.snapshot(now_monotonic_ns=now_monotonic_ns)
         self._publish(session, self.last_state)
 
+    def _publish_touch(self, session: _SmoothSession) -> None:
+        assert self.touch is not None
+        sample = self.touch.arm_sample
+        disabled_hand = AnalogClutchSample(0.0, sample.host_receive_monotonic_ns,
+            sample.sequence_number, valid=False)
+        session.set_clutch_samples(index=sample, grip=disabled_hand,
+            left_controller_valid=sample.valid, provider="quest_right_touch_udp_v1")
+
     def telemetry(self) -> dict[str, object]:
+        if self.touch is not None:
+            state = self.touch.last_state
+            return {"controller_provider": "quest_right_touch_udp_v1",
+                "controller_datagrams": state.packet_count,
+                "malformed_controller_datagrams": self.touch.malformed,
+                "controller_valid": state.controller_valid,
+                "controller_stale": state.stale,
+                "gripper_target_normalized": self.touch.gripper_target_normalized,
+                "gripper_target_is_feedback": False}
         state = self.last_state
         packet = state.latest
         return {

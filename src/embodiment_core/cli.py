@@ -11,6 +11,9 @@ from pathlib import Path
 import sys
 from typing import Iterator
 
+from .config import load_yaml, validate_runtime_config
+import yaml
+
 from .doctor import (
     collect_doctor_report,
     render_summary,
@@ -88,6 +91,7 @@ def _top_parser() -> argparse.ArgumentParser:
         "doctor",
         help="read-only host, dependency, storage, and device-path inventory",
     )
+    doctor.add_argument("--runtime-config", type=Path, help="check explicit machine YAML offline")
     doctor.add_argument("--json", action="store_true", help="print full JSON")
     doctor.add_argument("--output", type=Path, help="atomically save full JSON")
 
@@ -104,6 +108,10 @@ def _top_parser() -> argparse.ArgumentParser:
     smoke.add_argument("--duration-sec", type=float, default=0.02)
 
     commands.add_parser(
+        "gripper", add_help=False,
+        help="DH PGE via JAKA TIO commissioning (offline plan by default)",
+    )
+    commands.add_parser(
         "dataset",
         add_help=False,
         help="validate, index, normalize, or export canonical episodes",
@@ -113,6 +121,10 @@ def _top_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments and arguments[0] == "gripper":
+        from dh_gripper.cli import main as gripper_main
+
+        return gripper_main(arguments[1:])
     if arguments and arguments[0] == "dataset":
         from episode_dataset.cli import main as dataset_main
 
@@ -120,6 +132,16 @@ def main(argv: list[str] | None = None) -> int:
     args = _top_parser().parse_args(arguments)
     if args.command == "doctor":
         report = collect_doctor_report()
+        if args.runtime_config is not None:
+            try:
+                errors = validate_runtime_config(load_yaml(args.runtime_config))
+            except (OSError, ValueError, yaml.YAMLError) as exc:
+                errors = [str(exc)]
+            report["local_runtime_config"] = {"path": str(args.runtime_config), "errors": errors,
+                "physical_readiness_verified": False}
+            report["problems"].extend(errors)
+            if errors:
+                report["status"] = "not_ready"
         if args.output is not None:
             write_report(args.output, report)
         print(

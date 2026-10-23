@@ -23,6 +23,7 @@ from .errors import SerializationError
 from .hts_canonical import CanonicalQuestState, HtsCanonicalAssembler
 from .hts_protocol import HtsHeadPosePacket, HtsLandmarksPacket, HtsWristPacket
 from .hts_transport import ReceivedHtsDatagram
+from .right_touch import LEGACY_MODE, RIGHT_TOUCH_MODE, RightTouchInput
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,7 +41,12 @@ class QuestTransportGate:
         *,
         stale_after_s: float = 0.25,
         started_monotonic_ns: int | None = None,
+        input_mode: str = LEGACY_MODE,
     ) -> None:
+        if input_mode not in (LEGACY_MODE, RIGHT_TOUCH_MODE):
+            raise ValueError(f"unknown Quest input mode {input_mode!r}")
+        self.touch = RightTouchInput(stale_after_s=stale_after_s) if input_mode == RIGHT_TOUCH_MODE else None
+        self._valid_touch_packets = 0
         self.started_monotonic_ns = (
             time.monotonic_ns()
             if started_monotonic_ns is None
@@ -53,6 +59,7 @@ class QuestTransportGate:
         self.hand_datagram_count = 0
         self.head_datagram_count = 0
         self.malformed_ctrl_count = 0
+        self.valid_controller_packets = 0
         self.malformed_hand_head_count = 0
         self.unknown_packet_count = 0
         self.first_ctrl_receive_ns: int | None = None
@@ -71,6 +78,11 @@ class QuestTransportGate:
         )
 
     def ingest(self, datagram: ReceivedHtsDatagram) -> GateIngestResult:
+        if self.touch is not None:
+            accepted = self.touch.ingest(datagram)
+            if accepted and self.touch.last_state.controller_valid and self.touch.canonical.head.tracking_valid:
+                self._valid_touch_packets += 1
+            return GateIngestResult("right_touch", accepted, self.touch.error)
         is_ctrl = datagram.payload.startswith(b"CTRL")
         try:
             dispatched = parse_quest_transport_datagram(datagram.payload)
@@ -91,6 +103,8 @@ class QuestTransportGate:
                 dispatched.controller,
                 host_receive_monotonic_ns=datagram.receive_monotonic_ns,
             )
+            if state.controller_valid and state.latest is dispatched.controller:
+                self.valid_controller_packets += 1
             self.first_ctrl_receive_ns = (
                 datagram.receive_monotonic_ns
                 if self.first_ctrl_receive_ns is None
@@ -139,6 +153,9 @@ class QuestTransportGate:
 
     def poll(self, now_monotonic_ns: int | None = None) -> None:
         now_ns = time.monotonic_ns() if now_monotonic_ns is None else now_monotonic_ns
+        if self.touch is not None:
+            self.touch.poll(now_ns)
+            return
         state = self.provider.snapshot(now_monotonic_ns=now_ns)
         self._update_clutches(now_ns, state=state)
         self._last_canonical = self.assembler.state(now_monotonic_ns=now_ns)
@@ -146,6 +163,8 @@ class QuestTransportGate:
     def summary(self, now_monotonic_ns: int | None = None) -> dict[str, Any]:
         now_ns = time.monotonic_ns() if now_monotonic_ns is None else now_monotonic_ns
         self.poll(now_ns)
+        if self.touch is not None:
+            return {**self.touch.summary(now_ns), "valid_pose_packets": self._valid_touch_packets}
         state = self.provider.snapshot(now_monotonic_ns=now_ns)
         packet = state.latest
         if state.sample_age_ns is not None:
@@ -160,6 +179,7 @@ class QuestTransportGate:
             "head_packets": self.head_datagram_count,
             "head_rate_hz": self.head_datagram_count / elapsed_s,
             "ctrl_packets": state.packet_count,
+            "valid_controller_packets": self.valid_controller_packets,
             "ctrl_rate_hz": state.packet_count / elapsed_s,
             "session": None if packet is None else packet.session_id,
             "seq": None if packet is None else packet.sequence_number,
@@ -206,6 +226,8 @@ class QuestTransportGate:
     def final_report(self, now_monotonic_ns: int | None = None) -> dict[str, Any]:
         now_ns = time.monotonic_ns() if now_monotonic_ns is None else now_monotonic_ns
         report = self.summary(now_ns)
+        if self.touch is not None:
+            return report
         ages_ms = [value / 1e6 for value in self.controller_age_samples_ns]
         report.update(
             {
@@ -233,6 +255,8 @@ class QuestTransportGate:
         now_ns = time.monotonic_ns() if now_monotonic_ns is None else now_monotonic_ns
         if now_ns - self.started_monotonic_ns < int(timeout_s * 1e9):
             return ()
+        if self.touch is not None:
+            return () if self._valid_touch_packets else ("RTOUCH_valid_pose",)
         missing: list[str] = []
         if self.first_ctrl_receive_ns is None:
             missing.append("CTRL")

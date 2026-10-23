@@ -5,6 +5,7 @@ import json
 import math
 from pathlib import Path
 import subprocess
+import sys
 import threading
 import time
 
@@ -806,7 +807,7 @@ from teleoperation.jaka.quest_adapter import JakaAcceptedJointTargetAdapter
 assert JakaAcceptedJointTargetAdapter.__module__ == "teleoperation.jaka.quest_adapter"
 '''
     result = subprocess.run(
-        [".venv/bin/python", "-c", code], text=True, capture_output=True
+        [sys.executable, "-c", code], text=True, capture_output=True
     )
     assert result.returncode == 0, result.stderr
 

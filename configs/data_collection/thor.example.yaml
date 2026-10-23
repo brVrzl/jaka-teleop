@@ -1,0 +1,139 @@
+# Copy to configs/local/thor.yaml and fill actual identities. Never a motion authorization.
+# Existing YAML loader and runtime/cameras sections are reused; paths are repository-relative.
+# The offline RH56 model is a smoke-test reference only, not a DH tool model.
+# This incomplete example must fail physical preflight. RGB video only unless capture_depth=true.
+collection_profile: diagnostic
+runtime:
+  config: configs/sim/quest_hts_jaka_mini2_offline.yaml
+  enforce_clutch_target_displacement_limit: true
+  worker: build/jaka_servo_worker/jaka_servo_worker
+  robot_ip: null
+  edg_state_ip: null
+  bind: 0.0.0.0
+  port: 9000
+  allowed_sender: null
+  duration_sec: 10
+  bounded_duration_sec: 5
+  log_dir: logs
+  native_control_cpu: null
+  native_control_realtime_priority: 0
+  run_output_joint_velocity_limits_rad_s:
+  - 0.1
+  - 0.1
+  - 0.1
+  - 0.1
+  - 0.1
+  - 0.1
+  bounded_run_output_joint_velocity_limits_rad_s:
+  - 0.1
+  - 0.1
+  - 0.1
+  - 0.1
+  - 0.1
+  - 0.1
+  episode_data_config: configs/local/thor.yaml
+  episode_root: data/raw_episodes
+  task_name: bringup
+  operator: operator_id
+  episode_preview: false
+  recover_output_acceleration_transition: true
+  quest_input_mode: right-touch-v1
+  host_interface: null
+dataset:
+  root: data/raw_episodes
+  format: lerobot_staging_v1
+  fps: 30
+  video_codec: mp4v
+  camera_max_age_ms: 100.0
+  camera_severe_stale_limit_ms: 500.0
+  camera_consecutive_stale_limit: 15
+  camera_missing_timeout_ms: 1000.0
+  quality_min_valid_ratio: 1.0
+  quality_max_invalid_run: 0
+  control_max_age_ms: 40.0
+  hand_start_tolerance_rad: 0.05
+  camera_ring_capacity: 16
+  recorder_queue_capacity: 16
+  recorder_overflow_policy: drop_newest
+  preview_max_fps: 10.0
+  writer_batch_size: 8
+  writer_flush_interval_s: 1.0
+  writer_shutdown_timeout_s: 5.0
+  profile: jaka_dh_7d_v1
+cameras:
+  workspace:
+    serial: null
+    width: 640
+    height: 480
+    fps: 30
+    capture_depth: false
+    allow_profile_fallback: false
+    align_depth_to_color: false
+    warmup_frames: 5
+    timeout_ms: 5000
+    max_timestamp_skew_ms: 33.333334
+    sync_retry_frames: 30
+    filters:
+      use_disparity: false
+      spatial:
+        enabled: false
+        magnitude: 2
+        smooth_alpha: 0.5
+        smooth_delta: 20
+        hole_fill: 0
+      temporal:
+        enabled: false
+      hole_filling:
+        enabled: false
+  wrist:
+    serial: null
+    width: 640
+    height: 480
+    fps: 30
+    capture_depth: false
+    allow_profile_fallback: false
+    align_depth_to_color: false
+    warmup_frames: 5
+    timeout_ms: 5000
+    max_timestamp_skew_ms: 33.333334
+    sync_retry_frames: 30
+    filters:
+      use_disparity: false
+      spatial:
+        enabled: false
+        magnitude: 2
+        smooth_alpha: 0.5
+        smooth_delta: 20
+        hole_fill: 0
+      temporal:
+        enabled: false
+      hole_filling:
+        enabled: false
+calibration:
+  snapshot_files: []
+end_effector:
+  type: dh
+  model: null
+  identity_verified: false
+  tcp_verified: false
+  payload_verified: false
+  installation_verified: false
+  collision_geometry_verified: false
+  model_verified: false
+  notes: Do not run the RH56 model with a physical DH tool. Supply a reviewed tool/model
+    first.
+
+# Fill the exact nameplate model. This profile supports PGE-50-26-O-S-M1 only.
+dh_gripper:
+  model: null
+  channel: null  # SDK index: 0=RS485H/channel 1, 1=RS485L/channel 2
+  slave_id: null
+  baudrate: null
+  parity: null  # SDK ASCII N=78, O=79, E=69; data=8, stop=1 supported here
+  firmware_version: null  # Verified controller/TIO version and vendor compatibility
+  hardware_confirmed: false  # Actual model/drive, cable, V3 TIO, supply, exclusive bus
+  framing_confirmed: false  # Firmware takes slave+PDU, appends CRC; not raw RS485
+  signals:  # Must already exist, FC03 holding registers 512/513/514; never auto-created
+    initialization: dh_init
+    grip: dh_grip
+    position: dh_position

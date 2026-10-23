@@ -100,6 +100,15 @@ class EpisodeDataRuntime:
         configured_dataset = data_config.get("dataset", {})
         if not isinstance(configured_dataset, dict):
             raise ValueError("episode data config dataset must be a mapping")
+        end_effector = data_config.get("end_effector")
+        if end_effector is not None and not isinstance(end_effector, dict):
+            raise ValueError("end_effector must be a mapping when present")
+        if (configured_dataset.get("profile", "jaka_rh56_12d_v1") != "jaka_rh56_12d_v1"
+                or (end_effector is not None and end_effector.get("type") != "rh56")):
+            raise ValueError(
+                "this recorder supports only jaka_rh56_12d_v1; DH 7-D data must not "
+                "be padded into RH56 channels or exported with an RH56 checkpoint"
+            )
         collection_profile = str(data_config.get("collection_profile", "production"))
         if collection_profile not in {"production", "diagnostic"}:
             raise ValueError("collection_profile must be production or diagnostic")

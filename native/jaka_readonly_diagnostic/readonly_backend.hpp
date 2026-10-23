@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace jaka_readonly {
 
@@ -25,6 +26,18 @@ enum class Call : std::size_t {
   UserFrameData,
   ProgramState,
   ProgramInfo,
+  KinematicDhParameters,
+  Payload,
+  InstallationAngle,
+  TioVoltage,
+  TioPinDI,
+  TioPinDO,
+  TioPinAI,
+  Rs485Mode0,
+  Rs485Mode1,
+  Rs485Comm0,
+  Rs485Comm1,
+  TioSignals,
   Logout,
   Count,
 };
@@ -42,8 +55,30 @@ struct Batch {
   std::array<Observation, kCallCount> calls{};
 };
 
+struct TioSignal {
+  std::string name;
+  int channel = 0, type = 0, address = 0, cached_value = 0, frequency = 0;
+};
+
 struct State {
   std::string sdk_version;
+  bool kinematic_dh_available = false;
+  std::array<std::array<double, 6>, 4> kinematic_dh_sdk_raw{};
+  bool tio_signals_available = false;
+  int tio_signals_reported_count = -1;
+  std::vector<TioSignal> tio_signals;
+  bool payload_available = false;
+  std::array<double, 4> payload_kg_centroid_mm{};
+  bool installation_available = false;
+  std::array<double, 3> installation_rpy_rad{};
+  bool tio_voltage_available = false;
+  int tio_voltage_enabled = -1, tio_voltage_code = -1;
+  std::array<bool, 3> tio_pin_available{};
+  std::array<int, 3> tio_pin_mode{};
+  std::array<bool, 2> rs485_mode_available{}, rs485_comm_available{};
+  std::array<int, 2> rs485_mode{};
+  // slave ID, baudrate, data bits, stop bits, parity (ASCII N/O/E).
+  std::array<std::array<int, 5>, 2> rs485_comm{};
   bool joint_position_available = false;
   std::array<double, 6> joint_position_rad{};
   bool joint_velocity_available = false;

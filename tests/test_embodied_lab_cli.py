@@ -61,3 +61,16 @@ def test_headless_simulation_smoke() -> None:
     assert payload["validation_level"] == "offline_simulation"
     assert payload["initial_contact_count"] == 0
     assert payload["hardware_connections_attempted"] is False
+
+
+def test_doctor_reports_incomplete_local_profile_without_device_access() -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "embodiment_core.cli", "doctor", "--json",
+         "--runtime-config", "configs/data_collection/thor.example.yaml"],
+        cwd=ROOT, capture_output=True, text=True,
+    )
+    assert result.returncode == 1
+    report = json.loads(result.stdout)
+    assert report["local_runtime_config"]["errors"]
+    assert report["safety"]["device_connections_attempted"] is False
+    assert report["local_runtime_config"]["physical_readiness_verified"] is False

@@ -337,3 +337,96 @@ def test_list_realsense_devices(monkeypatch: pytest.MonkeyPatch) -> None:
             "firmware": "5.0",
         }
     ]
+
+
+def test_multicamera_check_rejects_unbounded_duration_and_duplicate_identity(tmp_path) -> None:
+    from tools.check_realsense_stream import check_configured_streams
+    import yaml
+
+    with pytest.raises(ValueError, match="duration"):
+        check_configured_streams("unused", duration_sec=float("nan"), output_dir=str(tmp_path))
+    config = tmp_path / "cameras.yaml"
+    config.write_text(yaml.safe_dump({"cameras": {
+        "workspace": {"serial": "same"}, "wrist": {"serial": "same"}}}))
+    with pytest.raises(ValueError, match="unique"):
+        check_configured_streams(str(config), duration_sec=1, output_dir=str(tmp_path / "capture"))
+
+
+@pytest.mark.parametrize("failure_stage", ["configuration", "warmup"])
+def test_camera_stops_pipeline_when_construction_fails(monkeypatch, failure_stage) -> None:
+    import vision_interface.realsense_adapter as adapter
+    _FakePipeline.stopped = False
+    monkeypatch.setitem(sys.modules, "pyrealsense2", _fake_rs())
+    def fail(*args, **kwargs):
+        raise RuntimeError("camera startup failure")
+    if failure_stage == "configuration":
+        monkeypatch.setattr(adapter, "_configure_depth_sensor", fail)
+    else:
+        monkeypatch.setattr(RealSenseCamera, "capture", fail)
+    with pytest.raises(RuntimeError, match="startup failure"):
+        RealSenseCamera({"warmup_frames": 1})
+    assert _FakePipeline.stopped
+
+
+def test_camera_checks_refuse_existing_capture_before_device_access(tmp_path, monkeypatch) -> None:
+    import yaml
+    import tools.check_realsense_stream as check
+    output = tmp_path / "capture"
+    output.mkdir()
+    original = output / "rgb.mp4"
+    original.write_bytes(b"existing capture")
+    monkeypatch.setattr(check, "list_realsense_devices", lambda: pytest.fail("must reject output before devices"))
+    path = tmp_path / "cameras.yaml"
+    path.write_text(yaml.safe_dump({"cameras": {"workspace": {"serial": "abc"}}}))
+    with pytest.raises(FileExistsError):
+        check.check_configured_streams(str(path), duration_sec=1, output_dir=str(output))
+    with pytest.raises(FileExistsError):
+        check.check_realsense_stream(duration_sec=1, width=640, height=480, fps=30,
+                                    serial="abc", snapshot_dir=str(output))
+    assert original.read_bytes() == b"existing capture"
+
+
+def test_multicamera_record_failure_releases_writer_and_all_cameras(tmp_path, monkeypatch) -> None:
+    import time
+    import yaml
+    import tools.check_realsense_stream as check
+    cameras, writers = [], []
+    class Camera:
+        def __init__(self, cfg):
+            self.serial, self.fps = cfg["serial"], 30
+            self.closed, self.frames = False, 0
+            cameras.append(self)
+        def __enter__(self): return self
+        def __exit__(self, *args): self.closed = True
+        def profile_metadata(self): return {"color": {"nominal_fps": 15}}
+        def capture(self):
+            time.sleep(0.005)
+            self.frames += 1
+            if self.serial == "a" and self.frames > 1:
+                raise RuntimeError("capture failed")
+            return SimpleNamespace(rgb=np.zeros((2, 3, 3), np.uint8), depth_enabled=False,
+                host_monotonic_ns=time.monotonic_ns(), host_wall_timestamp_ns=time.time_ns(),
+                color_frame_number=self.frames, depth_frame_number=-1, color_timestamp_ms=1,
+                depth_timestamp_ms=0, color_timestamp_domain="hardware_clock",
+                depth_timestamp_domain="unavailable", depth_scale_m=None)
+        def get_intrinsics(self): return SimpleNamespace(to_dict=lambda: {})
+    class Writer:
+        def __init__(self, path, codec, fps, shape):
+            assert fps == 15  # Selected profile, not the requested 30 fps.
+            self.released = False
+            writers.append(self)
+        def isOpened(self): return True
+        def write(self, frame): pass
+        def release(self): self.released = True
+    fake_cv2 = SimpleNamespace(VideoWriter=Writer, VideoWriter_fourcc=lambda *args: 0,
+        cvtColor=lambda frame, code: frame, COLOR_RGB2BGR=0, imwrite=lambda *args: True)
+    monkeypatch.setitem(sys.modules, "cv2", fake_cv2)
+    monkeypatch.setattr(check, "RealSenseCamera", Camera)
+    monkeypatch.setattr(check, "list_realsense_devices", lambda: [])
+    path = tmp_path / "cameras.yaml"
+    path.write_text(yaml.safe_dump({"cameras": {"workspace": {"serial": "a"}, "wrist": {"serial": "b"}}}))
+    with pytest.raises(RuntimeError, match="capture failed"):
+        check.check_configured_streams(str(path), duration_sec=0.03, output_dir=str(tmp_path / "new"))
+    assert len(cameras) == 2 and all(camera.closed for camera in cameras)
+    assert writers and all(writer.released for writer in writers)
+    assert not (tmp_path / "new" / "summary.json").exists()

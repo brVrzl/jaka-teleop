@@ -51,3 +51,10 @@ events.out.tfevents.*
 *.tar
 *.tar.gz
 *.egg-info/
+
+# Machine-local configuration (copy a tracked example; never commit identities).
+configs/local/
+*.local.yaml
+
+# Small, intentionally retained camera-only onboarding demonstration.
+!docs/media/dual-d435-check.mp4

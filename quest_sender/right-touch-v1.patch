@@ -1,0 +1,255 @@
+--- a/hand_tracking_streamer/Assets/Scripts/AppManager.cs
++++ b/hand_tracking_streamer/Assets/Scripts/AppManager.cs
+@@ -64,6 +64,10 @@
+ 
+     private void Start()
+     {
++        // Preserve modes 0..2; mode 3 is the explicit controller-only path.
++        if (handDropdown.options.Count == 3)
++            handDropdown.options.Add(new TMP_Dropdown.OptionData("Right Touch (RTOUCH v1)"));
++
+         // Automatically pulls from Project Settings > Player > Version
+         string version = Application.version; 
+         
+@@ -131,7 +135,8 @@
+     {
+         // If streaming, check if the user clicks the Left Menu Button
+         // This is the flat button with three lines on the Left Quest Controller
+-        if (isStreaming && OVRInput.GetDown(OVRInput.Button.Start, OVRInput.Controller.LTouch))
++        if (isStreaming && (OVRInput.GetDown(OVRInput.Button.Start, OVRInput.Controller.LTouch)
++            || (SelectedHandMode == 3 && OVRInput.GetDown(OVRInput.Button.Two, OVRInput.Controller.RTouch))))
+         {
+             StopStreaming(); 
+         }
+@@ -230,6 +235,17 @@
+ 
+         SelectedProtocol = protocolDropdown.value;
+         SelectedHandMode = handDropdown.value;
++
++        if (SelectedHandMode == 3 && (SelectedProtocol != 0
++            || !System.Net.IPAddress.TryParse(ServerIP, out var touchAddress)
++            || touchAddress.AddressFamily != AddressFamily.InterNetwork
++            || touchAddress.Equals(System.Net.IPAddress.Any)
++            || touchAddress.Equals(System.Net.IPAddress.Broadcast)
++            || touchAddress.GetAddressBytes()[0] >= 224 || ServerPort < 1 || ServerPort > 65535))
++        {
++            UpdateStatusUI("Right Touch requires UDP unicast IPv4 and port 1..65535", Color.red, false);
++            return;
++        }
+ 
+         // --- UPDATED TCP CHECK BLOCK ---
+         if (SelectedProtocol == 1 || SelectedProtocol == 2) // TCP wireless and wired
+--- a/hand_tracking_streamer/Assets/Scripts/LeftControllerPacketSender.cs
++++ b/hand_tracking_streamer/Assets/Scripts/LeftControllerPacketSender.cs
+@@ -18,6 +18,11 @@
+     private float _lastSendTime;
+     private ulong _session;
+     private ulong _sequence;
++    private bool _rightTouchMode;
++    private OVRCameraRig _rig;
++    private bool _focused = true;
++    private readonly System.Collections.Generic.List<UnityEngine.XR.XRInputSubsystem> _inputSubsystems =
++        new System.Collections.Generic.List<UnityEngine.XR.XRInputSubsystem>();
+ 
+     private static readonly double TicksToNs = 1_000_000_000.0 / Stopwatch.Frequency;
+ 
+@@ -25,6 +30,26 @@
+     {
+         _session = GenerateSessionId();
+     }
++
++    private void Start()
++    {
++        _rig = FindFirstObjectByType<OVRCameraRig>();
++        UnityEngine.SubsystemManager.GetInstances(_inputSubsystems);
++        foreach (var subsystem in _inputSubsystems)
++            subsystem.trackingOriginUpdated += OnTrackingOriginUpdated;
++    }
++
++    private void NewRightTouchSession()
++    {
++        if (!_rightTouchMode) return;
++        _session = GenerateSessionId();
++        _sequence = 0;
++        _nextSendTime = 0;
++    }
++
++    private void OnTrackingOriginUpdated(UnityEngine.XR.XRInputSubsystem subsystem) { NewRightTouchSession(); }
++    private void OnApplicationFocus(bool focused) { _focused = focused; NewRightTouchSession(); }
++    private void OnApplicationPause(bool paused) { _focused = !paused; NewRightTouchSession(); }
+ 
+     private void Update()
+     {
+@@ -56,11 +81,14 @@
+         _nextSendTime = now + interval;
+         _lastSendTime = now;
+ 
+-        SendSample(ReadSample());
++        if (_rightTouchMode) SendRightTouch();
++        else SendSample(ReadSample());
+     }
+ 
+     private void OnDestroy()
+     {
++        foreach (var subsystem in _inputSubsystems)
++            subsystem.trackingOriginUpdated -= OnTrackingOriginUpdated;
+         Disconnect();
+     }
+ 
+@@ -68,6 +96,8 @@
+     {
+         try
+         {
++            _rightTouchMode = AppManager.Instance.SelectedHandMode == 3;
++            NewRightTouchSession();
+             _udpClient = new UdpClient();
+             _udpClient.Client.SendBufferSize = 0;
+             _remoteEndPoint = new IPEndPoint(IPAddress.Parse(AppManager.Instance.ServerIP), AppManager.Instance.ServerPort);
+@@ -81,6 +111,50 @@
+             Disconnect();
+             LogHud("CTRL Conn Error: " + ex.Message);
+             AppManager.Instance.StopStreaming();
++        }
++    }
++
++    private void SendRightTouch()
++    {
++        try
++        {
++            const OVRInput.Controller side = OVRInput.Controller.RTouch;
++            bool connected = (OVRInput.GetConnectedControllers() & side) != 0;
++            bool active = _focused && Application.isFocused && (OVRInput.GetActiveController() & side) != 0;
++            bool tracked = connected && _rig != null
++                && OVRInput.GetControllerPositionTracked(side) && OVRInput.GetControllerOrientationTracked(side);
++            var headDevice = UnityEngine.XR.InputDevices.GetDeviceAtXRNode(UnityEngine.XR.XRNode.Head);
++            bool headTracked;
++            UnityEngine.XR.InputTrackingState headState;
++            var required = UnityEngine.XR.InputTrackingState.Position | UnityEngine.XR.InputTrackingState.Rotation;
++            bool headValid = headDevice.isValid && _rig != null && _rig.centerEyeAnchor != null
++                && headDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.isTracked, out headTracked) && headTracked
++                && headDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.trackingState, out headState)
++                && (headState & required) == required;
++            var p = tracked ? _rig.trackingSpace.TransformPoint(OVRInput.GetLocalControllerPosition(side)) : Vector3.zero;
++            var q = tracked ? _rig.trackingSpace.rotation * OVRInput.GetLocalControllerRotation(side) : Quaternion.identity;
++            var hp = headValid ? _rig.centerEyeAnchor.position : Vector3.zero;
++            var hq = headValid ? _rig.centerEyeAnchor.rotation : Quaternion.identity;
++            var sample = new LeftControllerPacket.Sample {
++                Session = _session, Sequence = _sequence++, SourceTimestampNs = GetMonotonicTimestampNs(),
++                Connected = connected, Active = active, Tracked = tracked,
++                IndexTrigger = connected ? Mathf.Clamp01(OVRInput.Get(OVRInput.Axis1D.PrimaryIndexTrigger, side)) : 0,
++                GripTrigger = connected ? Mathf.Clamp01(OVRInput.Get(OVRInput.Axis1D.PrimaryHandTrigger, side)) : 0
++            };
++            byte[] data = Encoding.UTF8.GetBytes(RightTouchPacket.Encode(sample, headValid, p, q, hp, hq));
++            _udpClient.Send(data, data.Length, _remoteEndPoint);
++            if (_sequence % 30 == 0)
++            {
++                string status = $"RTOUCH v1 TX {_sequence} -> {_remoteEndPoint}; tracked={tracked}; head={headValid}; "
++                    + $"grip={sample.GripTrigger:F2}; trigger={sample.IndexTrigger:F2}; verify RX on host; B stops";
++                UnityEngine.Debug.Log(status);
++                if (LogManager.Instance != null) LogManager.Instance.Log("Right", status);
++            }
++        }
++        catch (Exception ex)
++        {
++            Disconnect();
++            AppManager.Instance.HandleDisconnection("RTOUCH failed: " + ex.Message);
+         }
+     }
+ 
+--- a/hand_tracking_streamer/Assets/Scripts/HandLandmarkStreamer.cs
++++ b/hand_tracking_streamer/Assets/Scripts/HandLandmarkStreamer.cs
+@@ -92,6 +92,7 @@
+ 
+         // 2. Check Hand Mode (Logic unchanged: still checks if this hand should be streaming)
+         int mode = AppManager.Instance.SelectedHandMode;
++        if (mode == 3) { if (_isInitialized) Disconnect(); return; }
+         if (mode == 1 && _handSide == HandSide.Right) return;
+         if (mode == 2 && _handSide == HandSide.Left) return;
+ 
+--- a/hand_tracking_streamer/Assets/Scripts/HeadPoseStreamer.cs
++++ b/hand_tracking_streamer/Assets/Scripts/HeadPoseStreamer.cs
+@@ -31,7 +31,7 @@
+ 
+     private void Update()
+     {
+-        if (AppManager.Instance == null || !AppManager.Instance.isStreaming || !AppManager.Instance.TrackHeadPose)
++        if (AppManager.Instance == null || !AppManager.Instance.isStreaming || !AppManager.Instance.TrackHeadPose || AppManager.Instance.SelectedHandMode == 3)
+         {
+             if (_isInitialized)
+             {
+--- a/hand_tracking_streamer/Assets/Editor/CommandLineAndroidBuild.cs
++++ b/hand_tracking_streamer/Assets/Editor/CommandLineAndroidBuild.cs
+@@ -6,12 +6,15 @@
+ public static class CommandLineAndroidBuild
+ {
+     private const string OutputArg = "-apkOutput";
+-    private const string DefaultOutput = "build/apk/mixed_input_probe.apk";
+     private const string RequiredScene = "Assets/Scenes/Scene.unity";
+ 
+     public static void BuildApk()
+     {
+-        string outputPath = GetArgumentValue(OutputArg) ?? DefaultOutput;
++        // Distinct package preserves the currently installed legacy application.
++        PlayerSettings.SetApplicationIdentifier(UnityEditor.Build.NamedBuildTarget.Android,
++            "com.brvrzl.handtrackingstreamer.righttouch");
++        PlayerSettings.bundleVersion = "1.1.0-righttouch-v1";
++        string outputPath = GetArgumentValue(OutputArg) ?? "build/apk/right_touch_v1.apk";
+         string[] scenes = EditorBuildSettings.scenes
+             .Where(scene => scene.enabled)
+             .Select(scene => scene.path)
+--- /dev/null
++++ b/hand_tracking_streamer/Assets/Scripts/RightTouchPacket.cs
+@@ -0,0 +1,28 @@
++using System.Globalization;
++using System.Text;
++using UnityEngine;
++
++// Additive protocol: the existing CTRL encoder/analog validation stays unchanged.
++public static class RightTouchPacket
++{
++    public static string Encode(LeftControllerPacket.Sample controls, bool headTracked,
++        Vector3 p, Quaternion q, Vector3 hp, Quaternion hq)
++    {
++        // Reuse the exact version/session/sequence/clock/boolean/analog contract.
++        string common = LeftControllerPacket.Encode(controls).TrimEnd('\n');
++        common = "RTOUCH" + common.Substring("CTRL".Length);
++        int analogOffset = common.IndexOf(",index=", System.StringComparison.Ordinal);
++        common = common.Insert(analogOffset, ",head_tracked=" + (headTracked ? "1" : "0"));
++        var packet = new StringBuilder(common);
++        AppendPose(packet, "", p, q);
++        AppendPose(packet, "h", hp, hq);
++        return packet.Append('\n').ToString();
++    }
++
++    private static void AppendPose(StringBuilder packet, string prefix, Vector3 p, Quaternion q)
++    {
++        packet.AppendFormat(CultureInfo.InvariantCulture,
++            ",{0}px={1:R},{0}py={2:R},{0}pz={3:R},{0}qx={4:R},{0}qy={5:R},{0}qz={6:R},{0}qw={7:R}",
++            prefix, p.x, p.y, p.z, q.x, q.y, q.z, q.w);
++    }
++}
+--- a/hand_tracking_streamer/Assets/Tests/EditMode/LeftControllerInputProbeTests.cs
++++ b/hand_tracking_streamer/Assets/Tests/EditMode/LeftControllerInputProbeTests.cs
+@@ -2,6 +2,22 @@
+ 
+ public class LeftControllerInputProbeTests
+ {
++    [Test]
++    public void RightTouchPacket_IsSeparateVersionedPoseProtocol()
++    {
++        var sample = new LeftControllerPacket.Sample {
++            Session = 1, Sequence = 2, SourceTimestampNs = 3,
++            Connected = true, Active = true, Tracked = true,
++            IndexTrigger = 0.25f, GripTrigger = 0.75f
++        };
++        string packet = RightTouchPacket.Encode(sample, true,
++            new UnityEngine.Vector3(1, 2, 3), UnityEngine.Quaternion.identity,
++            new UnityEngine.Vector3(0, 1, 0), UnityEngine.Quaternion.identity);
++        Assert.AreEqual("RTOUCH,v=1,session=1,seq=2,t_ns=3,connected=1,active=1,tracked=1,head_tracked=1,index=0.250000,grip=0.750000,px=1,py=2,pz=3,qx=0,qy=0,qz=0,qw=1,hpx=0,hpy=1,hpz=0,hqx=0,hqy=0,hqz=0,hqw=1\n", packet);
++        Assert.IsFalse(LeftControllerPacket.TryDecode(packet, out _));
++        Assert.IsTrue(LeftControllerPacket.TryDecode(LeftControllerPacket.Encode(sample), out _));
++    }
++
+     [Test]
+     public void ControllerPacket_EncodesFixedVersionedWireFormat()
+     {

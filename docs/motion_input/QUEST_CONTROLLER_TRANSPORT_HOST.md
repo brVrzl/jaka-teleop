@@ -1,10 +1,12 @@
 # Quest CTRL host transport
 
+For right Touch **pose + Grip + Trigger**, use [the separate RTOUCH v1 mode](RIGHT_TOUCH.md). CTRL v1 below remains the legacy left-controller button protocol.
+
 ## English
 
 `tools/quest_controller_transport_gate.py` is the current input-only host gate.
 It parses strict `CTRL,v=1,...` packets alongside legacy HTS hand/head lines,
-preserves session and sequence diagnostics, and reports staleness using host
+requires at least one connected/active/tracked CTRL sample for a passing report, preserves session and sequence diagnostics, and reports staleness using host
 monotonic receive time. It does not start MuJoCo, generate a robot target, or
 open a JAKA/RH56 device.
 

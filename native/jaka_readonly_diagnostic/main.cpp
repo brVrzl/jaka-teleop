@@ -128,11 +128,13 @@ Stats statistics(const Series& series) {
 struct Results {
   explicit Results(std::size_t capacity)
       : initialization(capacity), first_read_latency(capacity), disconnect(capacity), periods(capacity), jitter(capacity),
-        sdk_cycle(capacity), calls{Series(capacity), Series(capacity), Series(capacity), Series(capacity), Series(capacity),
-        Series(capacity), Series(capacity), Series(capacity), Series(capacity), Series(capacity), Series(capacity),
-        Series(capacity), Series(capacity), Series(capacity), Series(capacity), Series(capacity), Series(capacity)} {}
+        sdk_cycle(capacity) {
+    for (auto& series : calls) series = Series(capacity);
+  }
   Series initialization, first_read_latency, disconnect, periods, jitter, sdk_cycle;
   std::array<Series, jaka_readonly::kCallCount> calls;
+  std::array<int, jaka_readonly::kCallCount> last_return_codes{};
+  std::array<bool, jaka_readonly::kCallCount> call_attempted{};
   std::uint64_t failed_calls = 0, failed_reads = 0, connection_failures = 0, disconnect_failures = 0;
   std::uint64_t timeouts = 0, maximum_consecutive_failures = 0, reconnect_attempts = 0;
   std::uint64_t missed_poll_deadlines = 0, maximum_consecutive_missed_deadlines = 0;
@@ -146,6 +148,8 @@ void record_batch(const jaka_readonly::Batch& batch, Results& results) {
     const auto& observation = batch.calls[i];
     if (!observation.attempted) continue;
     results.calls[i].add(observation.duration_ns);
+    results.call_attempted[i] = true;
+    results.last_return_codes[i] = observation.code;
     if (observation.code != 0) {
       ++results.failed_calls;
       if (i != static_cast<std::size_t>(jaka_readonly::Call::Login) &&
@@ -180,8 +184,8 @@ void write_stats(std::ostream& output, const Series& series) {
   output << "}";
 }
 
-template <std::size_t Size>
-void write_array(std::ostream& output, const std::array<double, Size>& values) {
+template <typename Value, std::size_t Size>
+void write_array(std::ostream& output, const std::array<Value, Size>& values) {
   output << '[';
   for (std::size_t i = 0; i < Size; ++i) { if (i) output << ','; output << values[i]; }
   output << ']';
@@ -233,6 +237,12 @@ void write_results(const Options& options, const Results& results, const jaka_re
     out << "    \"" << jaka_readonly::kCallNames[i] << "\":"; write_stats(out, results.calls[i]);
     out << (i + 1 == jaka_readonly::kCallCount ? "\n" : ",\n");
   }
+  out << "  },\n  \"last_call_return_codes\":{\n";
+  for (std::size_t i = 0; i < jaka_readonly::kCallCount; ++i) {
+    out << "    \"" << jaka_readonly::kCallNames[i] << "\":";
+    if (results.call_attempted[i]) out << results.last_return_codes[i]; else out << "null";
+    out << (i + 1 == jaka_readonly::kCallCount ? "\n" : ",\n");
+  }
   out << "  },\n  \"state_inventory\":{\n"
       << "    \"sdk_version\":\"" << escaped(state.sdk_version) << "\",\n"
       << "    \"controller_version\":null,\n    \"robot_model\":null,\n    \"robot_operating_mode\":null,\n"
@@ -257,7 +267,56 @@ void write_results(const Options& options, const Results& results, const jaka_re
       << "    \"user_frame_id\":" << (state.user_frame_id_available ? std::to_string(state.user_frame_id) : "null") << ",\n"
       << "    \"user_frame_mm_rpy_rad\":"; if (state.user_frame_data_available) write_array(out, state.user_frame_mm_rpy_rad); else out << "null"; out << ",\n"
       << "    \"program_state\":" << (state.program_state_available ? std::to_string(state.program_state) : "null") << ",\n"
-      << "    \"program_motion_line\":" << (state.program_info_available ? std::to_string(state.program_motion_line) : "null") << "\n  }\n}\n";
+      << "    \"program_motion_line\":" << (state.program_info_available ? std::to_string(state.program_motion_line) : "null") << ",\n";
+  out << "    \"kinematic_dh_parameters_sdk_raw\":";
+  if (state.kinematic_dh_available) {
+    constexpr std::array<const char*, 4> names{"alpha", "a", "d", "joint_homeoff"};
+    out << '{';
+    for (std::size_t i = 0; i < names.size(); ++i) {
+      if (i) out << ',';
+      out << '\"' << names[i] << "\":";
+      write_array(out, state.kinematic_dh_sdk_raw[i]);
+    }
+    out << '}';
+  } else out << "null";
+  out << ",\n    \"kinematic_dh_note\":\"Denavit-Hartenberg parameters, not DH-Robotics gripper data; raw SDK fields, verify convention and units before model comparison\",\n";
+  out << "    \"payload_kg_centroid_mm\":";
+  if (state.payload_available) write_array(out, state.payload_kg_centroid_mm); else out << "null";
+  out << ",\n    \"installation_rpy_rad\":";
+  if (state.installation_available) write_array(out, state.installation_rpy_rad); else out << "null";
+  out << ",\n    \"tio_hardware_version\":null,\n    \"tio_firmware_version\":null,\n    \"tio_voltage\":";
+  if (state.tio_voltage_available)
+    out << "{\"enabled\":" << state.tio_voltage_enabled << ",\"code_0_24v_1_12v\":" << state.tio_voltage_code << '}';
+  else out << "null";
+  out << ",\n    \"tio_pin_mode_di_do_ai\":[";
+  for (int pin = 0; pin < 3; ++pin) {
+    if (pin) out << ',';
+    out << (state.tio_pin_available[pin] ? std::to_string(state.tio_pin_mode[pin]) : "null");
+  }
+  out << "],\n    \"rs485_channels\":[";
+  for (int channel = 0; channel < 2; ++channel) {
+    if (channel) out << ',';
+    out << "{\"sdk_channel\":" << channel << ",\"mode\":"
+        << (state.rs485_mode_available[channel] ? std::to_string(state.rs485_mode[channel]) : "null")
+        << ",\"slave_baud_data_stop_parity\":";
+    if (state.rs485_comm_available[channel]) write_array(out, state.rs485_comm[channel]); else out << "null";
+    out << '}';
+  }
+  out << "],\n    \"tio_signal_reported_count\":";
+  if (state.tio_signals_reported_count >= 0) out << state.tio_signals_reported_count; else out << "null";
+  out << ",\n    \"tio_signals_cache\":";
+  if (state.tio_signals_available) {
+    out << '[';
+    for (std::size_t i = 0; i < state.tio_signals.size(); ++i) {
+      if (i) out << ',';
+      const auto& signal = state.tio_signals[i];
+      out << "{\"name\":\"" << escaped(signal.name) << "\",\"sdk_channel\":" << signal.channel
+          << ",\"type\":" << signal.type << ",\"address\":" << signal.address
+          << ",\"cached_value\":" << signal.cached_value << ",\"frequency\":" << signal.frequency << '}';
+    }
+    out << ']';
+  } else out << "null";
+  out << ",\n    \"tio_signal_freshness_verified\":false\n  }\n}\n";
 }
 
 int dry_run(const Options& options) {

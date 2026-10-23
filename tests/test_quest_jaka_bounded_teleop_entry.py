@@ -332,3 +332,18 @@ def test_transport_failure_is_not_relabelled_without_native_fault_evidence() -> 
     )
     assert reason == "control_heartbeat_transport_failure"
     assert symptom is None
+
+
+def test_right_touch_physical_path_cannot_reuse_rh56_model(tmp_path):
+    import yaml
+    document = yaml.safe_load((ROOT / "configs/data_collection/thor.example.yaml").read_text())
+    document["runtime"].update(robot_ip="192.0.2.2", edg_state_ip="192.0.2.1")
+    document["cameras"]["workspace"]["serial"] = "workspace-confirmed"
+    document["cameras"]["wrist"]["serial"] = "wrist-confirmed"
+    # Hand-editing verification booleans cannot install a DH kinematic model.
+    document["end_effector"].update({key: True for key in document["end_effector"] if key.endswith("verified")})
+    config = tmp_path / "runtime.yaml"
+    config.write_text(yaml.safe_dump(document))
+    args = _parser().parse_args(["bounded-normal-teleop", "--runtime-config", str(config)])
+    with pytest.raises(SystemExit, match="right Touch physical output is not commissioned"):
+        _apply_runtime_config(args)

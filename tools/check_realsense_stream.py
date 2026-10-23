@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
+import math
 import json
 import time
 from pathlib import Path
 
 import numpy as np
+
+from embodiment_core.config import load_yaml
 
 from vision_interface.depth_processing import depth_quality_summary, depth_to_point_cloud
 from vision_interface.realsense_adapter import RealSenseCamera, list_realsense_devices
@@ -104,6 +109,10 @@ def check_realsense_stream(
     preview_depth_min_m: float = 0.15,
     preview_depth_max_m: float = 1.5,
 ) -> dict[str, object]:
+    if not math.isfinite(duration_sec) or not 0 < duration_sec <= 60:
+        raise ValueError("camera check duration must be in (0, 60] seconds")
+    out_dir = Path(snapshot_dir)
+    out_dir.mkdir(parents=True, exist_ok=False)  # Reserve before opening a device; never overwrite a capture.
     devices = list_realsense_devices()
     frames = 0
     first_rgb_shape: list[int] | None = None
@@ -135,8 +144,8 @@ def check_realsense_stream(
     try:
         with RealSenseCamera(config) as camera:
             intrinsics = camera.get_intrinsics().to_dict()
-            start = time.time()
-            while time.time() - start < duration_sec:
+            start = time.monotonic()
+            while time.monotonic() - start < duration_sec:
                 frame = camera.capture()
                 frames += 1
                 last_frame = frame
@@ -158,19 +167,17 @@ def check_realsense_stream(
                     )
                     if cv2.waitKey(1) & 0xFF == ord("q"):
                         break
-            elapsed = max(time.time() - start, 1e-6)
+            elapsed = max(time.monotonic() - start, 1e-6)
     finally:
         if cv2 is not None:
             cv2.destroyAllWindows()
 
-    out_dir = Path(snapshot_dir)
     snapshot_rgb = ""
     snapshot_depth = ""
     snapshot_cloud = ""
     snapshot_metadata = ""
     quality: dict[str, float | int] = {}
     if last_frame is not None:
-        out_dir.mkdir(parents=True, exist_ok=True)
         snapshot_rgb = str((out_dir / "realsense_rgb.npy").resolve())
         snapshot_depth = str((out_dir / "realsense_depth_m.npy").resolve())
         snapshot_cloud = str((out_dir / "realsense_point_cloud.npz").resolve())
@@ -227,6 +234,106 @@ def check_realsense_stream(
     }
 
 
+def check_configured_streams(config_path: str, *, duration_sec: float, output_dir: str) -> dict:
+    """Bounded simultaneous camera-only recording; never fabricate robot rows."""
+    if not math.isfinite(duration_sec) or not 0 < duration_sec <= 60:
+        raise ValueError("camera check duration must be in (0, 60] seconds")
+    configs = load_yaml(config_path).get("cameras")
+    if not isinstance(configs, dict) or not configs:
+        raise ValueError("config must contain a nonempty cameras mapping")
+    if any(not isinstance(role, str) or not role.replace("_", "").isascii()
+           or not role.replace("_", "").isalnum() for role in configs):
+        raise ValueError("camera role names must be ASCII alphanumeric or underscores")
+    if any(not isinstance(c, dict) or not isinstance(c.get("serial"), str) for c in configs.values()):
+        raise ValueError("each camera must be a mapping with an explicit serial string")
+    serials = [c["serial"] for c in configs.values()]
+    if any(not serial.strip() or serial != serial.strip() or serial.startswith("REPLACE_") for serial in serials) or len(set(serials)) != len(serials):
+        raise ValueError("each camera needs a unique, explicitly confirmed serial")
+    import cv2
+
+    root = Path(output_dir)
+    root.mkdir(parents=True, exist_ok=False)  # Atomic reservation also rejects concurrent writers.
+
+    def record(role: str, camera: RealSenseCamera, deadline: float) -> dict:
+        directory = root / role
+        directory.mkdir(exist_ok=False)
+        active_profile = camera.profile_metadata()
+        active_fps = active_profile["color"]["nominal_fps"]
+        writer = None
+        count = 0
+        dropped_rgb = dropped_depth = 0
+        previous_rgb = previous_depth = None
+        first_ns = last_ns = None
+        last = None
+        try:
+            with (directory / "frames.jsonl").open("w") as metadata:
+                while time.monotonic() < deadline:
+                    frame = camera.capture()
+                    if writer is None:
+                        height, width = frame.rgb.shape[:2]
+                        writer = cv2.VideoWriter(str(directory / "rgb.mp4"),
+                            cv2.VideoWriter_fourcc(*"mp4v"), active_fps, (width, height))
+                        if not writer.isOpened():
+                            raise RuntimeError("OpenCV could not open mp4v writer")
+                        first_ns = frame.host_monotonic_ns
+                    writer.write(cv2.cvtColor(frame.rgb, cv2.COLOR_RGB2BGR))
+                    if frame.depth_enabled:
+                        np.save(directory / f"depth_{count:06d}.npy", frame.depth_raw_units)
+                    if previous_rgb is not None:
+                        dropped_rgb += max(0, frame.color_frame_number - previous_rgb - 1)
+                    if frame.depth_enabled and previous_depth is not None:
+                        dropped_depth += max(0, frame.depth_frame_number - previous_depth - 1)
+                    previous_rgb, previous_depth = frame.color_frame_number, frame.depth_frame_number
+                    last_ns = frame.host_monotonic_ns
+                    metadata.write(json.dumps({
+                        "index": count, "host_monotonic_ns": last_ns,
+                        "host_wall_timestamp_ns": frame.host_wall_timestamp_ns,
+                        "color_timestamp_ms": frame.color_timestamp_ms,
+                        "depth_timestamp_ms": frame.depth_timestamp_ms if frame.depth_enabled else None,
+                        "color_timestamp_domain": frame.color_timestamp_domain,
+                        "depth_timestamp_domain": frame.depth_timestamp_domain,
+                        "color_frame_number": frame.color_frame_number,
+                        "depth_frame_number": frame.depth_frame_number if frame.depth_enabled else None,
+                        "depth_scale_m": frame.depth_scale_m,
+                    }) + "\n")
+                    count += 1
+                    last = frame
+        finally:
+            if writer is not None:
+                writer.release()
+        if last is None:
+            raise RuntimeError(f"no frames captured for {role}")
+        if not cv2.imwrite(str(directory / "preview.jpg"), cv2.cvtColor(last.rgb, cv2.COLOR_RGB2BGR)):
+            raise RuntimeError(f"failed to save preview for {role}")
+        return {
+            "serial": camera.serial, "frames": count,
+            "rgb_shape": list(last.rgb.shape), "configured_fps": camera.fps,
+            "active_profile": active_profile, "active_nominal_fps": active_fps,
+            "observed_fps": (count - 1) * 1e9 / (last_ns - first_ns) if count > 1 and last_ns > first_ns else 0,
+            "rgb_frame_number_gaps": dropped_rgb, "depth_frame_number_gaps": dropped_depth,
+            "depth_saved": last.depth_enabled,
+            "depth_shape": list(last.depth_raw_units.shape) if last.depth_enabled else None,
+            "depth_scale_m": last.depth_scale_m,
+            "color_timestamp_domain": last.color_timestamp_domain,
+            "depth_timestamp_domain": last.depth_timestamp_domain,
+            "first_host_monotonic_ns": first_ns, "last_host_monotonic_ns": last_ns,
+            "intrinsics": camera.get_intrinsics().to_dict(),
+            "output": str(directory),
+        }
+
+    devices = list_realsense_devices()
+    with ExitStack() as stack:
+        cameras = {role: stack.enter_context(RealSenseCamera(cfg)) for role, cfg in configs.items()}
+        with ThreadPoolExecutor(max_workers=len(cameras)) as pool:
+            deadline = time.monotonic() + duration_sec
+            futures = {role: pool.submit(record, role, camera, deadline) for role, camera in cameras.items()}
+            results = {role: future.result() for role, future in futures.items()}
+    result = {"ok": True, "validation_level": "physical_cameras_only",
+              "robot_feedback_recorded": False, "devices": devices, "cameras": results}
+    (root / "summary.json").write_text(json.dumps(result, indent=2) + "\n")
+    return result
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Check an Intel RealSense RGB-D stream through vision_interface.")
     parser.add_argument(
@@ -234,12 +341,14 @@ def main() -> None:
         action="store_true",
         help="enumerate RealSense identities and exit without starting a stream",
     )
+    parser.add_argument("--config", help="record all configured cameras simultaneously, with RGB video and configured raw depth")
     parser.add_argument("--duration-sec", type=float, default=3.0)
     parser.add_argument("--width", type=int, default=640)
     parser.add_argument("--height", type=int, default=480)
     parser.add_argument("--fps", type=int, default=30)
     parser.add_argument("--serial", default=None)
-    parser.add_argument("--snapshot-dir", default="data/reports/realsense")
+    parser.add_argument("--snapshot-dir", default="data/reports/realsense",
+                        help="new capture directory; an existing directory is never overwritten")
     parser.add_argument(
         "--filter-profile",
         choices=["raw", "spatial", "static"],
@@ -256,6 +365,12 @@ def main() -> None:
     args = parser.parse_args()
     if args.list_devices:
         print(json.dumps(list_realsense_devices(), indent=2))
+        return
+    if args.config:
+        if args.serial or args.preview:
+            parser.error("--config cannot be combined with --serial or --preview; review saved previews")
+        print(json.dumps(check_configured_streams(args.config, duration_sec=args.duration_sec,
+                         output_dir=args.snapshot_dir), indent=2))
         return
     if not args.serial:
         parser.error("--serial is required to start a stream; use --list-devices first")

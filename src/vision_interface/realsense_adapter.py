@@ -77,26 +77,31 @@ class RealSenseCamera(CameraInterface):
                 self.rs.format.z16,
                 depth_profile[2],
             )
+        self._closed = True
         self.profile = self.pipeline.start(pipeline_config)
-        self.align = self.rs.align(self.rs.stream.color) if self.align_depth_to_color else None
-        self.depth_sensor = (
-            self.profile.get_device().first_depth_sensor()
-            if self.depth_enabled
-            else None
-        )
-        if self.depth_sensor is not None:
-            _configure_depth_sensor(self.rs, self.depth_sensor, self.config)
-            self.depth_scale = _get_depth_scale(self.depth_sensor)
-            self.depth_filters = _build_depth_filters(self.rs, self.config.get("filters", {}))
-        else:
-            self.depth_scale = None
-            self.depth_filters = []
-        self._last_frame: RGBDFrame | None = None
-        self._compat_frame: RGBDFrame | None = None
         self._closed = False
+        try:
+            self.align = self.rs.align(self.rs.stream.color) if self.align_depth_to_color else None
+            self.depth_sensor = (
+                self.profile.get_device().first_depth_sensor()
+                if self.depth_enabled
+                else None
+            )
+            if self.depth_sensor is not None:
+                _configure_depth_sensor(self.rs, self.depth_sensor, self.config)
+                self.depth_scale = _get_depth_scale(self.depth_sensor)
+                self.depth_filters = _build_depth_filters(self.rs, self.config.get("filters", {}))
+            else:
+                self.depth_scale = None
+                self.depth_filters = []
+            self._last_frame: RGBDFrame | None = None
+            self._compat_frame: RGBDFrame | None = None
 
-        for _ in range(self.warmup_frames):
-            self.capture()
+            for _ in range(self.warmup_frames):
+                self.capture()
+        except BaseException:
+            self.close()
+            raise
 
     @classmethod
     def from_yaml(

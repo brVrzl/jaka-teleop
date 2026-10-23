@@ -543,3 +543,115 @@ def test_recorded_index_and_grip_replay_through_the_live_router_together(
     assert session.hand_clutch.state.value == "reacquire"
     assert session.event_records[-1]["arm_reference_capture"]
     assert session.event_records[-1]["hand_reference_capture"]
+
+
+def _touch(seq, timestamp_ns, *, grip=0.0, trigger=0.0, session_id=1,
+           tracked=True, x=0.0, qz=0.0, qw=1.0):
+    payload = (f"RTOUCH,v=1,session={session_id},seq={seq},t_ns={timestamp_ns},"
+        f"connected=1,active=1,tracked={int(tracked)},head_tracked=1,"
+        f"index={trigger},grip={grip},px={x},py=0,pz=0,qx=0,qy=0,qz={qz},qw={qw},"
+        "hpx=0,hpy=1.6,hpz=0,hqx=0,hqy=0,hqz=0,hqw=1\n").encode()
+    return ReceivedHtsDatagram(payload, "127.0.0.1", 1, timestamp_ns, timestamp_ns)
+
+
+def test_right_touch_reuses_arm_pipeline_without_bones_and_reclutches(tmp_path):
+    session = _session(tmp_path)
+    router = LiveQuestControllerRouter(stale_after_s=0.15, input_mode="right-touch-v1")
+    for seq, grip, x in ((1, 0., 0.), (2, 1., 0.), (3, 1., .001)):
+        now = seq * 20_000_000
+        assert router.ingest(_touch(seq, now, grip=grip, x=x), session).accepted
+        router.poll(now, session)
+        session.control_tick(now)
+    assert session.reference_generation == 1
+    assert session.latest_state.right.joints == ()
+    assert session.last_accepted_target is not None
+    assert session.clutch_provider == "quest_right_touch_udp_v1"
+    assert not session._grip_sample.valid  # No RH56 channel is synthesized.
+    router.ingest(_touch(4, 80_000_000, grip=0, x=.15), session)
+    session.control_tick(80_000_000)
+    router.ingest(_touch(5, 100_000_000, grip=1, x=.15), session)
+    session.control_tick(100_000_000)
+    assert session.reference_generation == 2
+    assert session.arm_mapper.last_telemetry.robot_delta.position_m == (0., 0., 0.)
+    router.poll(300_000_000, session)
+    session.control_tick(300_000_000)
+    assert not session._index_sample.valid
+    router.ingest(_touch(6, 320_000_000, grip=1, x=.2), session)
+    session.control_tick(320_000_000)
+    assert session.reference_generation == 2
+    assert session.report("synthetic_right_touch")["accepted_target_count"] > 0
+
+
+def test_right_touch_order_restart_and_gripper_hold():
+    from motion_input.right_touch import RightTouchInput
+    source = RightTouchInput(stale_after_s=.15)
+    source.seed_gripper_from_measured(.6)
+    source.ingest(_touch(1, 20_000_000))
+    source.ingest(_touch(2, 40_000_000, grip=1, trigger=.2))
+    source.ingest(_touch(3, 60_000_000, grip=1, trigger=.8))
+    assert source.arm_engaged
+    assert .6 < source.gripper_target_normalized <= .621
+    previous = source.gripper_target_normalized
+    source.ingest(_touch(4, 80_000_000, grip=0, trigger=0))
+    assert not source.arm_engaged
+    assert source.gripper_target_normalized == previous
+    source.poll(300_000_000)
+    assert source.gripper_target_normalized == previous
+    source.ingest(_touch(1, 320_000_000, grip=1, trigger=0, session_id=2))
+    assert not source.arm_engaged
+    assert source.gripper_target_normalized == previous
+    source.ingest(_touch(2, 340_000_000, grip=0, session_id=2))
+    source.ingest(_touch(3, 360_000_000, grip=1, trigger=0, session_id=2))
+    assert source.arm_engaged
+    assert source.gripper_target_normalized == previous
+    assert not source.ingest(_touch(3, 380_000_000, grip=0, session_id=2))
+    assert source.arm_engaged  # Duplicate cannot change buttons or refresh age.
+    assert not source.ingest(_touch(100, 400_000_000, session_id=1))
+    source.ingest(_touch(4, 420_000_000, grip=1, tracked=False, session_id=2))
+    assert not source.arm_engaged
+    assert source.gripper_target_normalized == previous
+
+
+def test_right_touch_strict_pose_and_gate_without_hand_data():
+    from motion_input.right_touch import parse_right_touch_datagram, RightTouchInput
+    from motion_input.controller_protocol import ControllerPacketError
+    from motion_input.transport_gate import QuestTransportGate
+    packet = parse_right_touch_datagram(_touch(1, 1).payload)
+    assert packet.pose.position_m == (0., 0., -0.)
+    for payload in (_touch(1, 1, qw=2).payload,
+                    _touch(1, 1).payload.replace(b"px=0.0", b"px=nan"),
+                    _touch(1, 1).payload + b"garbage",
+                    _touch(1, 1).payload.replace(b"v=1", b"v=2")):
+        with pytest.raises(ControllerPacketError):
+            parse_right_touch_datagram(payload)
+    gate = QuestTransportGate(stale_after_s=.15, started_monotonic_ns=0, input_mode="right-touch-v1")
+    assert gate.ingest(_touch(1, 1)).accepted
+    assert gate.missing_required_streams_after(.01, now_monotonic_ns=20_000_000) == ()
+    assert gate.final_report(20_000_000)["valid_pose_packets"] == 1
+    source = RightTouchInput()
+    source.ingest(_touch(1, 1))
+    source.ingest(_touch(2, 20_000_000, grip=1))
+    source.ingest(_touch(3, 40_000_000, grip=1, trigger=1))
+    assert source.gripper_target_normalized is None  # Never invent startup feedback.
+
+
+def test_right_touch_clock_fault_rotation_basis_and_no_automatic_recovery():
+    import math
+    from motion_input.right_touch import RightTouchInput, parse_right_touch_datagram
+    payload = _touch(1, 1).payload.replace(b"py=0,pz=0,qx=0,qy=0,qz=0.0,qw=1.0", b"py=2,pz=3,qx=0,qy=0.7071067811865475,qz=0,qw=0.7071067811865476", 1)
+    pose = parse_right_touch_datagram(payload).pose
+    assert pose.position_m == (0., 2., -3.)
+    assert pose.orientation_xyzw[1] == pytest.approx(-math.sqrt(.5))
+    source = RightTouchInput(stale_after_s=.15)
+    source.ingest(_touch(1, 20_000_000))
+    source.ingest(_touch(2, 40_000_000, grip=1))
+    # Source time reversal with a forward sequence must stop/re-arm.
+    reversed_clock = _touch(3, 60_000_000, grip=1)
+    reversed_clock = replace(reversed_clock, payload=reversed_clock.payload.replace(b"t_ns=60000000", b"t_ns=30000000"))
+    source.ingest(reversed_clock)
+    assert not source.arm_engaged
+    source.ingest(_touch(4, 80_000_000, grip=1))
+    assert not source.arm_engaged
+    source.ingest(_touch(5, 100_000_000, grip=0))
+    source.ingest(_touch(6, 120_000_000, grip=1))
+    assert source.arm_engaged
