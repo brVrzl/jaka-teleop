@@ -32,10 +32,12 @@ NVIDIA 驱动、内核、EGL 和网络属于系统前置条件；不要复制旧
 
 ## 2. Clone 并创建自己的环境
 
+当前 Thor / Quest 交接尚未合并 main，以下命令固定工作分支，避免取得旧入口。
+
 ```bash
 mkdir -p ~/projects
 cd ~/projects
-git clone https://github.com/brVrzl/embodied-hand-lab.git
+git clone --branch work/thor-onboarding-quest-dh --single-branch https://github.com/brVrzl/embodied-hand-lab.git
 cd embodied-hand-lab
 python3 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
@@ -180,7 +182,7 @@ Use a new per-user environment; existing NVIDIA drivers, kernel, EGL and network
 The Thor onboarding checks have run on Ubuntu 24.04/aarch64, L4T 39.2, Python 3.12, CMake 3.28 and GCC 13.
 
 ```bash
-git clone https://github.com/brVrzl/embodied-hand-lab.git
+git clone --branch work/thor-onboarding-quest-dh --single-branch https://github.com/brVrzl/embodied-hand-lab.git
 cd embodied-hand-lab
 python3 -m venv .venv
 .venv/bin/python -m pip install -e '.[simulation]'

@@ -1,116 +1,168 @@
-# Mac → Quest 右 Touch 交接
+# Mac / Quest 右 Touch 交接
 
-[Thor设备状态](DEVICE_STATUS.md) · [发送端补丁与唯一构建说明](../../quest_sender/README.md) · [主机协议/验收](../motion_input/RIGHT_TOUCH.md)
+## 本次收工状态（2026-10-23）
 
-**Mac负责USB调试、核对现装应用、构建及安装新发送端。Thor继续负责输入接收、仿真和设备诊断。**
-Quest通过Wi-Fi向Thor发送，不必占用Thor的USB口。本轮在Thor端遇到设备模式USB口，
-且用户没有空闲host口，所以改由Mac连接Quest；无需改Thor的USB模式或拔掉D435。
+用户要求今天结束，已停止 Thor 本轮 SDK 观察器和 RoboticsServiceProcess；未发送任何 JAKA/DH 指令。
+收工时 USB 已断开，adb 无法停止 Quest 应用或恢复接近传感器；最后已知设置仍为 Disable For 8 Hours。
+下次连接先检查 MQDH 的 Proximity Sensor，恢复正常使用选 Enable；Cast 停止后的状态未再次确认。
 
-## 当前已知条件
+Trossen 因下述实际键盘失败切换到现成 XRobo，未编译或修改 Unity 发送端。
+XRobo Quest [v1.0.1](https://github.com/XR-Robotics/XRoboToolkit-Unity-Client-Quest/releases/tag/v1.0.1)，
+commit `05ad3f081e64c400d8eda34c0efdf711c47f6b3a`，包 `com.xrobotoolkit.client.quest` 1.0.1/code 1；
+APK SHA256 `c8a077451e7f6b66ca688668d7b32f5a6a6c19a8c0fa4657f2e1344493c174df`。
+普通安装，所有旧包保留。应用 Network → PC Service 填 `10.24.1.68`，开启 Head、Controller、Send，关闭 Hand。
 
-- 主仓库工作分支：`work/thor-onboarding-quest-dh`，不合并main。
-- Thor输入地址：`10.24.1.68:9000/UDP`；当前Quest来源IP：`10.24.0.3`。网络变化后重新核对。
-- 现装应用能够发送HTS/CTRL，但已捕获的501条CTRL全部控制器未跟踪，尚无RTOUCH。
-- 候选发送端：`brVrzl/hand-tracking-streamer` 的 `feature/mixed-input-log-probe`，固定commit
-  `5b8eac7e30ce12481b89b123099693bc658bc578`。不能仅凭报文相似就断言它是已装APK来源。
-- 新协议、主机安全回归及合成replay已通过；发送端补丁仅通过应用检查，**尚未经Unity编译或安装**。
-- 本交接只验收输入/发送端，不授权JAKA或DH动作。主机右Touch物理输出当前明确关闭。
+Thor 实际 TCP 63901 收到 Quest `10.24.0.3` 输入。固定快照 29,938 帧 / 332.778 秒，约 90 Hz，
+最大 SDK 回调间隔 77.8 ms；右位置与四元数确实变化。Grip/Trigger 均覆盖 0–1，
+分别有 411 帧仅 Grip >0.5、545 帧仅 Trigger >0.5（另一输入 <0.1）。这证明独立真实输入，不证明完整 tracking 可靠性。
+用户确认摘下后单独计时，仅记录 **60.04 秒 / 5,180 帧** 即收工，**没有完成 5 分钟验收**。
+轴向、遮挡/休眠、后台、断网重连、头显移动和 recenter 尚未完成受控验收。
 
-## 1. 先核对现装应用，不卸载
+原始记录在 Thor `~/.cache/embodied-hand-lab-xrobo/{raw-01,raw-02}.jsonl`、`status-02.log`、
+`unworn-start.json`；Mac `outputs/mac-quest/xrobo-snapshot-02.jsonl` 保存固定快照。
+维护入口 `tools/xrobo_input_observer.py` 已部署并实际运行：每个 SDK JSON 回调记录一次原始 payload、
+host_callback_monotonic_s、本地回调序号和 SDK device id；不是原始 TCP 数据报，也不是 SDK 缓存轮询。
+SDK 的 `TestDevice` 是上游写死的名称，不能当作真实设备序列号。150 ms 无新帧显示 stale/current_frame=null。
+六项观察器解析测试通过；断流失效的真实端到端验收待补。
 
-Mac已有adb则直接使用。否则可使用[Google官方Platform Tools](https://developer.android.com/tools/releases/platform-tools)，
-或已有Homebrew时安装[对应cask](https://formulae.brew.sh/cask/android-platform-tools)：
+协议：位置米、四元数 xyzw；上游已将 Unity 的位置 z 和 quaternion z/w 取反转为右手系，接收端不能再重复转换。
+Head 有 status；右控制器没有 is_tracked/status/connected，观察器明确列缺失。
+timeStampNs 为源 UTC 时钟，predictTime 为源应用 elapsed 微秒；没有源 seq/session/recenter generation。
+头部使用 root pose、控制器使用 visual world transform，同一参考空间须用实际 head-motion/recenter 测试确认。
+因此仅完成只读解析，**尚未接入 RightTouchInput 或目标生成**。下一小步是先完成上述测试，
+再决定是否给 XRobo 最小补充真实 controller validity、统一参考和源 session/seq，随后局部接入既有 canonical/clutch 路径；
+不能伪造有效性或把本地序号冒充源序号。真机输出限制不变，DH 新鲜反馈等原验收仍需完成。
 
-```bash
-brew install --cask android-platform-tools
-adb version
-adb devices -l
-adb shell pm list packages -3
-```
+### XRobo Thor 重启入口
 
-Quest用数据线连接Mac，保持唤醒，在头显内允许USB调试。`unauthorized`需要头显确认；
-列表空则检查数据线/USB连接，不是去修改机器人网络。若Mac连接多个Android设备，每条命令加`-s SERIAL`。
-
-从包列表确认实际应用，先检查候选包（不存在时使用真实包名）：
-
-```bash
-adb shell dumpsys package com.brvrzl.handtrackingstreamer.mixedprobe
-adb shell pm path com.brvrzl.handtrackingstreamer.mixedprobe
-adb shell cmd package get-install-source com.brvrzl.handtrackingstreamer.mixedprobe
-```
-
-保留包名、`versionName`、`versionCode`、安装来源结果；安装来源若系统不支持查询则明确记录，不猜。
-不要把完整设备日志/凭据上传Git。旧应用保留，用于对照。
-
-## 2. 拉取本轮成果并按固定源码构建
-
-在Mac自己的新目录中执行；若已有checkout，先检查分支/远端/工作区，不覆盖已有修改：
+使用可登录的 `thor` 账户，不改变 user01 私有目录。官方 PC Service headless arm64 v1.0.0
+commit `6386009475369615fa984bca0a6e9902cd81eb2a`，deb SHA256
+`532c605dfa1a02b05b7c285b856c91771c78623cded30ef5b16ea371de49ed5f`。
+已在缓存目录解包，另局部解包 Ubuntu libicu70 70.1-2ubuntu1，未系统安装或改全局库。
+两个 Thor 终端分别执行（日志必须用新文件名）：
 
 ```bash
-mkdir -p ~/projects
-cd ~/projects
-git clone --branch work/thor-onboarding-quest-dh \
-  https://github.com/brVrzl/embodied-hand-lab.git embodied-hand-lab-thor
-cd embodied-hand-lab-thor
+cd ~/.cache/embodied-hand-lab-xrobo/unpacked/opt/apps/roboticsservice
+export LD_LIBRARY_PATH="$PWD:$PWD/lib:$PWD/SDK/arm64:$HOME/.cache/embodied-hand-lab-xrobo/icu70/usr/lib/aarch64-linux-gnu"
+export QT_PLUGIN_PATH="$PWD/plugins"
+./RoboticsServiceProcess
 ```
-
-然后完整执行[发送端README](../../quest_sender/README.md)的固定源码获取、`git apply --check`、
-EditMode测试和Android构建步骤。这里不另维护第二套构建参数。
-
-需要Unity **6000.0.65f1**及Android Build Support、SDK/NDK/OpenJDK；用Unity Hub安装对应版本和模块，
-完成Editor自身授权。常见Mac Editor路径是：
 
 ```bash
-export UNITY_EDITOR="/Applications/Unity/Hub/Editor/6000.0.65f1/Unity.app/Contents/MacOS/Unity"
-test -x "$UNITY_EDITOR"
+cd ~/.cache/embodied-hand-lab-xrobo
+python3 xrobo_input_observer.py \
+  --sdk "$PWD/unpacked/opt/apps/roboticsservice/SDK/arm64/libPXREARobotSDK.so" \
+  --log "$PWD/raw-NEW.jsonl"
 ```
 
-路径不存在就从Unity Hub确认实际路径，不改成一个“接近”的Editor版本。
-不搬旧用户的Library缓存、不升级Meta/OpenXR依赖来掩盖编译问题。保存真正的EditMode和build日志，
-编译失败就修补丁并重新验证；不要创建空APK或仅凭host tests宣布应用通过。
+Mac 通过 `ssh thor` 启动/观察即可。XRobo 使用 TCP 63901 和 UDP 50087 发现，不套用 Trossen UDP9000 协议。
+下面保留 Trossen 的安装、失败证据和可复用入口；其零收包状态不代表 XRobo 状态。
 
-## 3. 安装独立包、填主机地址
+[设备记录](DEVICE_STATUS.md) · [现有右 Touch 接口](../motion_input/RIGHT_TOUCH.md) · [备用发送端补丁](../../quest_sender/README.md)
 
-构建成功后安装新APK（路径以实际构建输出为准）：
+本轮优先使用现成 Trossen APK，只观察输入，不运行机器人 demo，不向 JAKA / DH 发命令。
+只有实测证明现成方案不能满足要求后才评估 XRoboToolkit 或最小发送端补丁；Unity 自编译暂缓。
+
+## 工作区与安装
+
+尚未合并 main，新克隆必须指定工作分支：
 
 ```bash
-adb install -r /absolute/path/to/hand_tracking_streamer/build/right_touch_v1.apk
-adb shell monkey -p com.brvrzl.handtrackingstreamer.righttouch -c android.intent.category.LAUNCHER 1
-adb shell dumpsys package com.brvrzl.handtrackingstreamer.righttouch
+git clone --single-branch --branch work/thor-onboarding-quest-dh \
+  https://github.com/brVrzl/embodied-hand-lab.git
+cd embodied-hand-lab
 ```
 
-新包名`com.brvrzl.handtrackingstreamer.righttouch`与旧包不同。菜单设置：UDP、
-IP `10.24.1.68`、端口`9000`、Hand mode **Right Touch (RTOUCH v1)**，然后Start Streaming。
-Quest要与Thor网络互通；Mac只负责安装，不是UDP目标。若无法点菜单，记录现象并修现有菜单交互，
-不要伪造tracking=true。右B停止并返回菜单；Grip释放只暂停主机接管。
+2026-10-23 Mac 新工作区 `/Users/wujunqi/embodied-hand-lab`，起点 `d50f0b3`，初始干净。
+已有 adb：`~/Library/Android/sdk/platform-tools/adb`。USB 授权由用户完成。
+实际设备 Quest 3 (`eureka`)，Horizon `207.0.0.190.429`，Android 14，build `52433670032200520` / `UP1A.231005.007.A1`。
+两个旧发送包均保留数据：`com.brvrzl.handtrackingstreamer.mixedprobe`、
+`com.wengmister.handtrackingstreamer`，均 `versionName=1.1.0, versionCode=7`。
+系统不支持 `cmd package get-install-source`；dumpsys 显示 installerPackageName=null，不能推定 APK 源码身份。
+完整第三方应用清单与设备属性在忽略目录 `outputs/mac-quest/`。
 
-## 4. 与Thor联合验收输入
+Trossen 来源：[上游仓库](https://github.com/TrossenRobotics/trossen_vr)，固定
+`d8b0def97f1633d3760556b136d6ad04799a9393`，`assets/VR_Teleop.apk`。
+SHA256：`3f352857f8b3f07cae9f9ec1d160d070374968e0d70bd254549b09e841f7c72a`。
+包 `com.DefaultCompany.vr_controller`，版本 `1.0` / code `11`；安装前包不存在，使用普通 `adb install` 成功，未用卸载或覆盖。
+本地 APK 在 `~/.cache/trossen_vr/assets/VR_Teleop.apk`，不入 Git。
+[官方操作说明](https://docs.trossenrobotics.com/trossen_arm/main/tutorials/trossen_vr.html)。
 
-通知Thor操作者“新APK已安装并准备发送”。Thor上先执行纯输入gate（不打开任何执行器）：
+## 不佩戴运行与投屏
+
+Mac 已通过 Homebrew 安装 MQDH 6.5.2，用户完成 Meta 登录。
+Device Manager → 当前 Quest → Device Actions → Proximity Sensor 原为 **Enabled**，
+本轮选择 **Disable → For 8 Hours**，界面确认 Disabled for 8 hours；随后打开 Cast 并看到实际头显画面。
+Settings → General 未看到连接时自动禁用接近传感器选项，未声称已配置自动项。
+恢复方法：Device Actions → Proximity Sensor → **Enable**；当前普通 Android 超时设置未改动。
+停止 Cast 后重新核对开关，不能假定状态保持。保持空间跟踪，稳定放置头显、摄像头朝向右控制器活动区域。
+
+**设置和投屏已完成，不佩戴持续有效位姿验收仍未完成。**
+已读取 Android `screen_off_timeout=86400000`（24 小时），未改写；这不是已验证的 Horizon 接近休眠时限。
+应在 MQDH/头显核对实际相关时限；至少测 5 分钟，若原有效休眠时限更长则覆盖它。不能用 5 分钟替代 24 小时设置的完整覆盖结论。
+
+## Mac 只读接收
+
+当前 Mac `10.24.0.89`，Quest `10.24.0.3/16`；Quest ping Mac 两包成功。
+启动前 9000/9001 无占用。地址变化后重新核对。应用 Robot PC IP Address 填 Mac 地址并 Connect。
+接收器只有标准库，不安装 Trossen 机器人库：
+
+```bash
+python3 tools/trossen_input_observer.py --bind 10.24.0.89 \
+  --allowed-sender 10.24.0.3 --log outputs/mac-quest/trossen-raw-NEW.jsonl
+```
+
+日志文件必须是新路径，避免覆盖现场记录。Ctrl-C 停止。一个 UDP 9000 只能有一个对应协议的进程。
+不要同时运行旧 HTS/RTOUCH gate。`--duration 360` 可限定观察秒数，默认一直运行。
+
+协议已按固定上游 `src/network_manager.cpp`、`include/trossen_vr/vr_conversions.hpp`、
+`src/vr_conversions.cpp` 核对：数据为 UDP 9000 JSON；每个校验通过的数据报回复来源 IP 的 UDP 9001：
+`{"type":"ack","timestamp":<host Unix 毫秒>,"frequency_hz":<接收频率>}`。
+ACK 时间是主机时间，不是采样时间。
+
+- `right_controller.pose6d`: x/y/z（上游声明米）；ax/ay/az 是旋转向量（轴 × 弧度），不是 Euler 角。
+- `is_tracked` 原样显示；`triggers.hand_trigger` 与 `triggers.index_trigger` 分开显示。
+  不照搬上游 SDK 的 Grip < 0.9 时强行将 is_tracked 置 0 的处理。
+- `buttons.one/two`、`thumbstick.x_axis/y_axis` 以及收到的其他右控制器字段原样保留。
+- 缺失字段显式列入 missing。原始 JSON 不增补头部、源序号、源时钟或 session。
+- 每次实际 recvfrom 成功且校验通过才写一行：host_monotonic_s、source、local_receive_sequence、raw_payload、missing。
+  本地序号/时间仅描述接收事件，不提供源端重复、乱序或旧缓存的可检测保证。
+- 状态每 0.5 秒显示一次，不写成新样本。默认 150 ms 无有效报文则 current_frame=null、current_frame_valid=false；
+  receiving/current_frame_valid 只表示校验通过且新鲜的报文，不证明 tracking 字段或位姿物理可靠。
+
+## 验收与下一步
+
+当前准备验证：APK 安装与身份检查、同网 ping、合成解析/ACK/超时失效检查已通过。
+**真实右 Touch 收包与动作验收待完成，不因应用启动或合成测试而判通过。**
+用户实测反馈 IP 输入框点击/Touch 输入无法编辑。重启并用右控制器射线点击后仍不弹键盘：
+18:25:36 系统 ImeTracker 报 `PHASE_IME_ON_SHOW_SOFT_INPUT_TRUE` failed，18:25:37 Unity 报
+`Timeout while waiting for keyboard to become visible`。投屏确认默认 IP `192.168.0.220`、Disconnected。
+日志 `outputs/mac-quest/trossen-keyboard-failure.log`；Mac 实际收到 0 个有效数据报，观察进程已停止。
+这是当前固件上的地址输入阻碍，不能推断 Trossen tracking 不可用；没有修改或卸载 Trossen。
+需要逐项记录动作时间、原始日志区间和观察：平移/旋转轴向；Grip/Index 独立；静止持续发送与停止后的失效；
+摘下头显长时运行；遮挡/手柄休眠；后台；断网/重连；手柄不动时移动头显；recenter。
+
+当前 RTOUCH 接口依赖真实头部参考、源 session/seq/time 和独立有效性。Trossen 上游仅声明 robot coordinate system，
+未提供足够可核对的轴映射；不能把其旋转向量套成 Unity quaternion，也不能伪造头部或源时间满足现有接口。
+实测明确坐标、参考与缺失字段后，再局部适配 `src/motion_input/right_touch.py` 的输入边界/共用 canonical 路径，
+复用既有 clutch 与 target generation；真机输出限制保持。由于上述实测键盘阻碍，已继续验证 XRobo 现成候选；未修改发送端。
+
+## Thor 入口
+
+`thor-user01` 密钥登录失败；已有 `thor` 账户登录成功，但无权访问 `/home/user01/projects/embodied-hand-lab`，未改变权限。
+Thor 的 9000/9001 当前查询无监听。Mac 输入验收后，可由 user01 的 Thor Agent 更新工作分支并执行：
 
 ```bash
 cd ~/projects/embodied-hand-lab
+git status --short --branch
+# 保留本地修改；在工作分支且干净时更新
+git pull --ff-only origin work/thor-onboarding-quest-dh
 source ~/.venvs/embodied-hand-lab/bin/activate
-python tools/quest_controller_transport_gate.py --input-mode right-touch-v1 \
-  --bind 10.24.1.68 --port 9000 --project-ip 10.24.1.68 \
-  --allowed-sender 10.24.0.3 --duration-sec 60 --required-data-timeout-sec 45
+ss -lunp | grep -E ':9000|:9001' || true
+python tools/trossen_input_observer.py --bind 10.24.1.68 \
+  --allowed-sender 10.24.0.3 --log outputs/thor-onboarding/trossen-raw-NEW.jsonl
 ```
 
-检查真实right-controller/head有效、位姿变化、Grip/Trigger、session/sequence，且有`valid_pose_packets`。
-释放再按Grip才能接管；松开暂停；遮挡/断流/切回应用后一直握住Grip不能自动恢复。
-右B应停止发流，原HTS/RH56模式仍能选回。坐标与仿真验收按[RIGHT_TOUCH](../motion_input/RIGHT_TOUCH.md)，
-不直接启动真机遥操作。
-
-## 回传给Thor的交付物
-
-- Mac架构、实际Unity/Android模块版本；源码commit与补丁应用状态。
-- 旧/新包名、版本号、安装来源（能查到的部分）。
-- 真正的EditMode结果、build日志与APK本地路径；共享APK时使用明确文件链接，不提交大型APK到主仓库。
-- Quest头显菜单、有效追踪/按键、暂停/重接管、B停止的实测结果。
-- 若修补发送端，回传补丁diff；先保留工作分支，不合并main。
-
-给Mac端协作Agent的任务可以直接表述为：
-
-> 请读取这份交接和仓库AGENTS.md，在当前Mac实际完成步骤1–3，修复并验证固定发送端补丁，
-> 保留旧APK；与Thor协调步骤4输入验收。不得控制机器人或电爪，不得将未编译源码、合成数据或TX计数
-> 写成Quest端到端通过。源码/构建/安装受阻时给出具体错误和已完成产物，不只输出计划。
+先停止其他 9000 接收进程，再将 Quest 目标改成 `10.24.1.68`；ACK 返回 Quest:9001。
+上述入口只观察输入，尚非现有仿真的输入适配完成声明。没有向 Thor 转发合成帧冒充 Quest 验收。
+JAKA/DH 后续仍需真实 DH 新鲜反馈、TCP/负载/碰撞模型与既有安全验收，不在本次输入观察授权内。

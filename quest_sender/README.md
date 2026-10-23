@@ -1,5 +1,9 @@
 # Right Touch extension for the existing Quest sender
 
+Current priority: validate the prebuilt Trossen Quest APK first. This Unity
+build workflow is deferred unless real tests show existing applications cannot
+meet the input requirements. See [Mac handoff](../docs/setup/MAC_QUEST_HANDOFF.md).
+
 This directory contains a focused patch for
 [`brVrzl/hand-tracking-streamer`](https://github.com/brVrzl/hand-tracking-streamer/tree/5b8eac7e30ce12481b89b123099693bc658bc578),
 branch `feature/mixed-input-log-probe`, commit

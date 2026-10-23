@@ -103,8 +103,33 @@ TIO读回：24V输出启用；DI/DO/AI模式分别`[0,0,1]`（AI复用RS485L）�
 没有生成DH真机拾放视频或带真实机器人/夹爪反馈的新episode。当前旧12维RH56收集器拒绝
 `jaka_dh_7d_v1` profile；没有用补零冒充反馈，也没有用旧checkpoint驱动新夹爪。
 
-下一步依次完成：版本和线缆核对 → 可验证DH读回 → Quest新协议APK构建安装及真实右Touch输入 →
+下一步依次完成：版本和线缆核对 → 可验证DH读回 → 现成Trossen APK真实右Touch输入验收（Unity自编译暂缓） →
 新工具TCP/负载/碰撞几何 → 操作者准备后的有限夹爪动作与低速短程机械臂试验 → 联合拾放与独立7维episode验收。
 当前准备工作不构成执行器动作授权。
 
-Quest 的 Mac USB 调试、构建与安装见[Mac 交接清单](MAC_QUEST_HANDOFF.md)。
+Quest 的 Mac USB 调试、安装与输入验收见[Mac 交接清单](MAC_QUEST_HANDOFF.md)。
+
+## Mac / Quest 接续（2026-10-23）
+
+收工更新：Trossen 实测键盘无法编辑 IP，转用现成 XRobo Quest 1.0.1/code1（`com.xrobotoolkit.client.quest`）。
+Thor `thor` 账户的独立只读服务已实际收到约90Hz右Touch数据，Grip/Trigger独立0–1、位姿变化均有日志。
+固定快照29,938帧/332.778秒；用户确认摘下后的独立计时仅60.04秒/5,180帧，未完成5分钟验收。
+右控制器tracking有效性字段缺失，坐标参考、遮挡、后台、断网重连、recenter待测，尚未接入RightTouchInput。
+收工已停止Thor观察器和服务；USB已断开，未能恢复MQDH proximity，最后已知为禁用8小时。
+详细来源、日志、恢复及重启命令见[交接文档顶部](MAC_QUEST_HANDOFF.md)。以下为此前安装阶段记录。
+
+实际 USB 设备为 Quest 3 / eureka，Horizon `207.0.0.190.429`，Android 14，build `52433670032200520`。USB 授权已完成。
+旧 `com.brvrzl.handtrackingstreamer.mixedprobe` 与 `com.wengmister.handtrackingstreamer`
+均为 1.1.0 / code 7，均保留；不能仅凭版本匹配确定源码来源。
+新 Trossen `com.DefaultCompany.vr_controller` 1.0 / code 11 已独立安装成功。
+来源、SHA256、完整启动命令和恢复步骤统一见 [Mac 交接](MAC_QUEST_HANDOFF.md)。
+
+Mac `10.24.0.89`、Quest `10.24.0.3` 同网 ping 成功；JSON UDP 9000 / ACK 9001
+只读观察入口已准备，原始 tracking 与 Grip 不合并，150 ms 超时清空当前帧。
+解析测试及本地合成 UDP 的 ACK/拒绝错误报文/超时检查通过，不作为 Quest 实测。
+MQDH 6.5.2 已安装并登录；Proximity Sensor 从 Enabled 改为 Disable → For 8 Hours，Cast 已显示头显画面。
+General 设置未看到自动禁用 proximity 的选项。尚未完成不佩戴长时或真实右 Touch 验收。
+Android screen_off_timeout 原值 86400000 ms 未改，实际 Horizon 接近休眠时限仍需核对。
+用户反馈 Trossen IP 输入框不能编辑，当前尚无真实收包，不据此判定追踪方案失败。
+Thor user01 SSH 密钥认证失败；thor 账户可登录，但不访问/更改 user01 私有工作区。
+本轮 Thor 尚未收到 Trossen 输入，坐标与现有 RightTouchInput 的适配尚未验证；未发送任何 JAKA/DH 动作。
