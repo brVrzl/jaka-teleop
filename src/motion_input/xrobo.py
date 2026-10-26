@@ -65,11 +65,15 @@ class XRoboNativeInput:
             restarted = self._elapsed is not None and elapsed < self._elapsed
             if self._elapsed is not None and elapsed == self._elapsed:
                 raise ValueError('duplicate_source_elapsed')
+            inconsistent_clocks = (self._utc is not None and not restarted and
+                abs((utc-self._utc)/1e9 - (elapsed-self._elapsed)/1e6) > .15)
             self.interrupted = bool(restarted or (self._elapsed is not None and
                 elapsed - self._elapsed > self.stale_ns / 1000) or (self.received_ns is not None
                 and received_ns - self.received_ns > self.stale_ns))
             self._utc, self._elapsed = utc, elapsed
             self.received_ns, self.frame = received_ns, frame
+            if inconsistent_clocks:
+                raise ValueError('source_clocks_inconsistent')
             self.reason = self.preview_rejection(received_ns)
             if self.reason is not None:
                 self.rejected += 1

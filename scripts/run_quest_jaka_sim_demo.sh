@@ -8,6 +8,7 @@ REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 
 CONFIG="configs/sim/quest_hts_jaka_mini2_live_demo.yaml"
 INPUT_MODE="hts-ctrl-v1"
+XROBO_SDK=""
 PROFILE="rh56"
 BIND_HOST="0.0.0.0"
 UDP_PORT="9000"
@@ -41,6 +42,7 @@ simulation-only Quest 3 -> JAKA Mini2 MuJoCo 6D 相对遥操作演示。
 选项：
   --log-dir DIR           新建带时间戳的报告/事件/原始输入文件
   --profile NAME          rh56（默认）或 dh-proxy（仿真近似模型）
+  --xrobo-sdk PATH        XRobo native SDK library（live 必填）
   --input-mode MODE       hts-ctrl-v1 / right-touch-v1 / xrobo-native-experimental
   --recording PATH        读取已有 raw JSONL（离线 replay；默认 live UDP）
   --config PATH           演示 YAML（默认 configs/sim/quest_hts_jaka_mini2_live_demo.yaml）
@@ -80,6 +82,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --log-dir) require_value "$@"; LOG_DIR="$2"; shift 2 ;;
     --profile) require_value "$@"; PROFILE="$2"; shift 2 ;;
+    --xrobo-sdk) require_value "$@"; XROBO_SDK="$2"; shift 2 ;;
     --input-mode) require_value "$@"; INPUT_MODE="$2"; shift 2 ;;
     --recording) require_value "$@"; RECORDING="$2"; shift 2 ;;
     --config) require_value "$@"; CONFIG="$2"; shift 2 ;;
@@ -111,8 +114,8 @@ case "${PROFILE}" in
   dh-proxy) CONFIG="configs/sim/quest_jaka_dh_proxy.yaml" ;;
   *) echo "未知 profile：${PROFILE}" >&2; exit 2 ;;
 esac
-if [[ "${INPUT_MODE}" == "xrobo-native-experimental" && -z "${RECORDING}" ]]; then
-  echo "XRobo 当前仅开放未验证的原生回调 replay；实时输入请用 xrobo_input_observer.py。" >&2
+if [[ "${INPUT_MODE}" == "xrobo-native-experimental" && -z "${RECORDING}" && -z "${XROBO_SDK}" ]]; then
+  echo "XRobo 实验 live 必须提供 --xrobo-sdk PATH；仅限 MuJoCo。" >&2
   exit 2
 fi
 if [[ "${PROFILE}" == "dh-proxy" && "${INPUT_MODE}" == "hts-ctrl-v1" ]]; then
@@ -250,6 +253,7 @@ if [[ -n "${RECORDING}" ]]; then
   [[ -n "${REPLAY_DURATION}" ]] && CMD+=(--duration-sec "${REPLAY_DURATION}")
   [[ "${VIEWER_FLAG}" == "--viewer" ]] && CMD+=(--viewer)
 else
+  [[ -n "${XROBO_SDK}" ]] && CMD+=(--xrobo-sdk "${XROBO_SDK}")
   CMD+=(--bind "${BIND_HOST}" --port "${UDP_PORT}"
     --duration-sec "${DURATION_SEC}" --telemetry-hz "${TELEMETRY_HZ}" "${VIEWER_FLAG}")
   [[ -n "${PROJECT_IP}" ]] && CMD+=(--project-ip "${PROJECT_IP}")

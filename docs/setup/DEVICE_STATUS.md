@@ -3,6 +3,31 @@
 这是在当前 `user01` 环境实际执行的记录（部署 2026-10-23，RH56 仿真追加验收 2026-10-26）。离线、计算查询、相机采集与执行器动作分开描述。
 [安装](INSTALLATION.md) · [JAKA 首次连接](../operation/REAL_ROBOT.md) · [右 Touch](../motion_input/RIGHT_TOUCH.md) · [DH/TIO](../operation/DH_TIO.md)
 
+## XRobo experimental live：现场验收未通过（2026-10-26）
+
+本轮实际接通Quest→PC Service→native SDK→同一MuJoCo live循环；原生输入-only
+观察到约90 Hz。当前账户HTTP代理曾阻断localhost gRPC，接收器现明确排除本机代理。
+新增共享native接收器，观察器/live复用；不构造RTOUCH、不赋予hardware授权，
+RH56双Clutch、native安全边界及continuation IK未更改。
+
+首次live出现手指代理约0.26 mm偏移，既有反馈检查中止运行；未放宽检查，
+仅提高DH代理位置执行器与对称约束刚度。刚录制输入的事故回放及39项回归通过后
+再次运行live-02，日志记录1,632 accepted、IK位置/方向/奇异性拒绝，完整qpos已保存。
+这不是功能PASS：**操作者反馈“仿真内机械臂一直没有运动”，且映射关系尚不清楚，
+要求当天停止。** 日志与现场观感存在未解释差异，不能用accepted数量或桌面截图覆盖反馈。
+后续暂停/恢复、B Stop、应用失焦及操作者无跳变确认未完成；tracking-loss未验收。
+
+证据保留在`outputs/xrobo-live/`：input-local输入-only、live-01失败输入/日志/视频、
+incident-replay离线定位、live-02原始SDK回调/全量events/报告/235秒桌面录屏及截图，
+窗口属性与display.txt。live/replay来源分别标记；不提交这些原始数据。
+相关280项回归通过；随后源时钟异常检查的39项针对性复测通过。
+最后增加的退出错误报告与显示文案未再做真人live验收。仿真、录屏与本轮PC Service已结束。
+
+明日从短时输入-only开始，先核对操作者所见屏幕是否为当前MuJoCo窗口、实际输入到达
+时刻和停流区间；明确Grip相对接管、Head yaw坐标参考、三轴平移/旋转的对应关系，
+再逐轴小幅验证并同步记录用户所见。不要直接重演大幅动作或宣称当前映射已通过。
+只读真机配置盘点已完成；现场动作仍禁用，剩余条件与逐项顺序见[DH/TIO](../operation/DH_TIO.md#xrobo-live-仿真后的真机准备审查2026-10-26)。
+
 ## XRobo 原生输入与 DH 代理仿真（2026-10-26，Thor）
 
 基于 Mac 分支 `57adf0d` 开发，并已合入最新 `20b872e`；没有重复 RH56 现场验收。通过 `thor` 账户把

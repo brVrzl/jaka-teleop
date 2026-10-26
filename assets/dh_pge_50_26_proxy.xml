@@ -19,9 +19,9 @@
       </body>
     </body>
   </worldbody>
-  <equality><joint joint1="dh_left_slide" joint2="dh_right_slide" polycoef="0 1 0 0 0"/></equality>
+  <equality><joint joint1="dh_left_slide" joint2="dh_right_slide" polycoef="0 1 0 0 0" solref="0.004 1"/></equality>
   <actuator>
-    <position name="dh_left_position" joint="dh_left_slide" kp="1000" kv="20" ctrllimited="true" ctrlrange="-0.013 0"/>
-    <position name="dh_right_position" joint="dh_right_slide" kp="1000" kv="20" ctrllimited="true" ctrlrange="-0.013 0"/>
+    <position name="dh_left_position" joint="dh_left_slide" kp="5000" kv="20" ctrllimited="true" ctrlrange="-0.013 0"/>
+    <position name="dh_right_position" joint="dh_right_slide" kp="5000" kv="20" ctrllimited="true" ctrlrange="-0.013 0"/>
   </actuator>
 </mujoco>

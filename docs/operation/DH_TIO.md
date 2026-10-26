@@ -135,3 +135,34 @@ Grip 释放、断流、跟踪失效、重连及进程退出不能发送“松爪
 1 个夹爪目标（设备归一化刻度）；实际关节、实际夹爪位置、缓存可用性／新鲜度、命令和
 测量时间分别保存。这里的缓存查询结果不可充当已验证实际反馈；不得补零伪装 RH56，
 也不得直接套用历史 RH56 checkpoint。
+
+## XRobo live 仿真后的真机准备审查（2026-10-26）
+
+本轮实际使用现有 `jaka_readonly_diagnostic` 查询2秒（2 Hz），未上电、使能、
+初始化电爪或写任何工具配置。证据：`outputs/xrobo-live/jaka-readonly.json`。
+当前机器人 powered/enabled/servo_move 均为 false；工具0的TCP为零偏置，
+负载配置0.45 kg、质心(0,0,70) mm。这是控制器配置，未实测确认夹爪、安装件及指尖。
+仿真的97 mm代理几何、安装高度和质量分配不能直接写入真机。
+
+TIO读回电源启用/24 V；通道1为Modbus，slave=1、115200、8N1；
+`init/gripperstate/gripperpos`分别指向FC03寄存器512/513/514，刷新配置2 Hz，
+另有`aa`指向259，均是缓存零值。没有设备采样时间或逐次总线成功凭据，
+不能判定电爪未初始化、到位或反馈新鲜。控制器/TIO固件、硬件版本和实际针脚仍未知。
+本地DH配置仍为`hardware_confirmed=false`、`framing_confirmed=false`，
+离线status明确拒绝缺少`firmware_version`，没有为通过检查填写占位值。
+
+后续逐项验收顺序（每次物理动作须另获明确授权）：
+
+1. **DH单独验收**：确认铭牌、线缆两端针脚、供电、TIO版本及总线独占；
+   建立可验证设备采样新鲜度；确认安全停机方式和夹持区清空后，才授权一次初始化。
+   再分别授权有限开合，实测0–1000寄存器的开合方向与行程，填写归一化映射。
+   保留4 Hz写入上限；独立线程拥有JakaTio，禁止在arm实时servo线程调用。
+   通用GripperObservation不能接受当前缓存作为valid测量；尚无已验收实时DH adapter。
+2. **JAKA单独受限验收**：实测安装件/TCP、总质量/质心并验证碰撞几何；
+   经单独配置授权后核对读回；现场急停可达、工作区清空，授权低速短程动作，
+   独立验证HOLD/停机和反馈。此阶段无需依赖未知tracking的XRobo输入。
+3. **联合验收**：前两项通过后，先补齐XRobo真实独立tracking证据、源session/seq、
+   origin/recenter连续性及失效转换验证；再授权联合受限操作。
+   Grip释放只停止新目标，不等同于电爪机械制动；不能用仿真通过代替停机能力确认。
+
+XRobo experimental live始终只输出MuJoCo；不向任何硬件适配器传递实验许可。

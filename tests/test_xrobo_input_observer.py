@@ -61,3 +61,28 @@ def test_native_duplicate_restart_gap_and_coordinate_preservation():
     assert source.preview_rejection(1_400_000_000) == 'callback_stale'
     assert source.ingest(raw(300,1),1_410_000_000)
     assert source.interrupted
+    assert not source.ingest(raw(2_000_000_300,10001),1_420_000_000)
+    assert source.reason == 'source_clocks_inconsistent'
+
+
+def test_native_callback_records_raw_bytes_and_host_time_without_source_sequence(tmp_path):
+    import ctypes as C
+    from motion_input.xrobo_native import DeviceState, XRoboNativeReceiver
+    receiver = XRoboNativeReceiver('/unused', tmp_path/'raw.jsonl', capacity=1)
+    receiver.log = receiver.log_path.open('x')
+    state = DeviceState(b'TestDevice', b'{"functionName":"Tracking","value":"{}"}')
+    receiver._callback(None, 1 << 25, 0, C.pointer(state))
+    packet, = receiver.drain()
+    row = json.loads(receiver.log_path.read_text())
+    assert packet.payload.decode() == row['raw_payload']
+    assert packet.receive_monotonic_ns == row['host_callback_monotonic_ns']
+    assert 'source_sequence' not in row
+    receiver._callback(None, 1 << 5, 0, None)
+    assert receiver.drain()[0].payload == b'{}'  # Invalidate, never replay a cached pose.
+    receiver._callback(None, 1 << 25, 0, C.pointer(state))
+    receiver._callback(None, 1 << 25, 0, C.pointer(state))
+    import pytest
+    with pytest.raises(RuntimeError, match='overflow'):
+        receiver.raise_if_failed()
+    assert receiver.dropped == 1
+    receiver.log.close()

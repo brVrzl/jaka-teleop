@@ -110,3 +110,10 @@ Thor 可继续原生离线适配、合成仿真和DH资产工作：读取上述�
 收工时XRobo、此轮观察器和PC Service已停止。历史native-01全零记录、旧APK及应用数据保留；
 没有修改RightTouchInput、ArmClutchMachine、SmoothQuestJakaSession、IK或DH输出链，
 没有执行JAKA、DH、RH56物理动作。
+
+## Thor实验live接入
+
+原生接收已用于MuJoCo live实验，入口和记录格式见
+[Simulation](../simulation/SIMULATION.md#xrobo-native--dh-proxy)。
+这不改变上表字段的真实性边界：右控制器tracking/session/seq/recenter继续unknown，
+不把数值可用性提升为物理授权；原生SDK不调用任何机器人控制API。

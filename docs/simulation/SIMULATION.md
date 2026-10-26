@@ -77,10 +77,10 @@ Live 与 replay 的 `.events.jsonl` 按控制 tick 持续写入，包含实际�
 
 原生字段和真实采集限制见[XRobo输入契约](../motion_input/XROBO_NATIVE.md)。
 
-这是**未验证的离线实验**，不授予真机控制权，也不代表 XRobo 实时联合验收通过。
+这是**simulation-only experimental** 输入，不授予真机控制权，tracking与源连续性仍未验证。
 输入为 PC Service native SDK 的 JSON 回调记录，不是 UDP9000/RTOUCH。
 使用已有脚本选择 `--profile dh-proxy --input-mode xrobo-native-experimental`；
-不提供 `--recording` 会明确拒绝启动实时控制。右 Grip 是唯一共同 Clutch，
+提供 `--recording` 为回放；否则需 `--xrobo-sdk` 接收本机PC Service真实回调。右 Grip 是唯一共同 Clutch，
 右 Trigger 越深越闭合；B 停止。释放、断流和重新接管保持上次安全意图，
 重新捕获 Trigger 参考而不追赶间断期间的变化。XRobo 不自动重锚，必须释放再按。
 
@@ -89,6 +89,12 @@ Live 与 replay 的 `.events.jsonl` 按控制 tick 持续写入，包含实际�
 PYTHONPATH=src ~/.venvs/embodied-hand-lab/bin/python tools/xrobo_input_observer.py \
   --sdk /absolute/path/to/libPXREARobotSDK.so \
   --log /tmp/xrobo-new.raw.jsonl --duration 60
+
+# XRobo live（PC Service须先启动，Quest开启Head/Controller/Send，关闭Hand）
+./scripts/run_quest_jaka_sim_demo.sh --profile dh-proxy \
+  --input-mode xrobo-native-experimental \
+  --xrobo-sdk "$HOME/.cache/embodied-hand-lab-xrobo/unpacked/opt/apps/roboticsservice/SDK/arm64/libPXREARobotSDK.so" \
+  --duration-sec 180 --log-dir outputs/xrobo-live-demo
 
 # DH + JAKA 原生记录实验回放；默认 Thor 实体显示器
 ./scripts/run_quest_jaka_sim_demo.sh --profile dh-proxy \
@@ -120,3 +126,24 @@ unknown/unverified；通过数值检查只允许该离线实验。`input_evidenc
 且回调仍达90 Hz，也不会接管。收到时间倒退、重复、断流或 B 时要求重新明确接管。
 真实 XRobo live 还需恢复手柄连接、验证共同坐标空间，并补实际有效性与连续性证据；
 在此之前只运行 input-only 和离线仿真，不使用缓存位置伪造新鲜反馈。
+
+### XRobo live接收及证据
+
+PC Service启动命令见[Mac/Thor交接](../setup/MAC_QUEST_HANDOFF.md)。SDK固定连接
+本机127.0.0.1:60061；接收器把localhost加入进程的`no_grpc_proxy`，避免SSH环境的
+HTTP代理吞掉本机回调流，不修改系统代理或私有账户权限。Quest与PC Service使用
+TCP63901，而非UDP9000；日志中的旧UDP参数只适用于HTS/RTOUCH。
+
+`motion_input.xrobo_native.XRoboNativeReceiver`由input-only与live共用，保留SDK原始
+JSON、原始callback monotonic ns/秒、host wall time、SDK事件及本地计数。
+本地计数不是source seq；native记录可直接交给同入口replay。每个live控制tick写入
+`actual_joint_position_rad`和`parallel_gripper_qpos_m`，命令与测量分开。
+DH代理实际指间距为`0.0262 + q_left + q_right`米。日志用新文件，拒绝覆盖已有raw/events。
+
+回调队列有界，溢出中止并记录错误；排队超过150 ms的旧输入不会进入控制链。
+停流、SDK断开、源时钟异常、B或无效数值触发HOLD；恢复须先明确释放再按Grip，
+即使中断不足300 ms也不自动重锚。原版visual可能冻结旧pose，这不能被数值检查可靠发现，
+故不宣称tracking-loss安全验收。MuJoCo实验许可仍由会话边界拒绝传入硬件输出。
+
+若仿真错误退出，保留原始输入、全量events及报告中的`runtime_error`，该轮不得算通过。
+viewer更新率、accepted目标及暂停行为需结合完整events，不能把有界诊断尾段当全程统计。

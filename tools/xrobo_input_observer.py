@@ -6,16 +6,9 @@ No robot commands or SDK device-control calls are made.
 """
 import argparse
 from collections import deque
-import ctypes as C
 import json
 from pathlib import Path
-import threading
 import time
-
-
-class DeviceState(C.Structure):
-    # PXREARobotSDK.h from PC-Service v1.0.0.
-    _fields_ = [('device_id', C.c_char * 32), ('state_json', C.c_char * 16352)]
 
 
 from motion_input.xrobo import parse_tracking
@@ -30,72 +23,37 @@ def main():
     args = p.parse_args()
     if args.duration < 0 or args.timeout <= 0:
         p.error('duration must be nonnegative; timeout must be positive')
-    sdk = C.CDLL(str(args.sdk.resolve()))
-    callback_type = C.CFUNCTYPE(None, C.c_void_p, C.c_uint, C.c_int, C.c_void_p)
-    args.log.parent.mkdir(parents=True, exist_ok=True)
-    lock = threading.Lock()
-    last = None
-    sequence = 0
-    latest = None
-    times = deque()
+    from motion_input.xrobo import XRoboNativeInput
+    from motion_input.xrobo_native import XRoboNativeReceiver
+    worker = XRoboNativeReceiver(args.sdk, args.log)
+    source = XRoboNativeInput(args.timeout)
     start = time.monotonic()
-    with args.log.open('x') as log:
-        @callback_type
-        def callback(context, kind, status, data):
-            nonlocal last, sequence, latest
-            received = time.monotonic()
-            if kind != 1 << 25:
-                print(json.dumps({'sdk_event': kind, 'status': status,
-                                  'host_callback_monotonic_s': received}), flush=True)
-                if kind in (1 << 3, 1 << 5):
-                    with lock:
-                        latest = None
-                return
-            state = C.cast(data, C.POINTER(DeviceState)).contents
-            try:
-                raw = state.state_json.decode('utf-8')
-                frame = parse_tracking(raw)
-                source = state.device_id.decode('utf-8')
-            except (ValueError, KeyError, TypeError, AttributeError) as exc:
-                print(json.dumps({'rejected': str(exc), 'host_callback_monotonic_s': received}), flush=True)
-                return
-            with lock:
-                sequence += 1
-                log.write(json.dumps({'host_callback_monotonic_s': received,
-                                     'sdk_device_id': source, 'local_callback_sequence': sequence,
-                                     'raw_payload': raw}) + '\n')
-                log.flush()
-                if frame is not None:
-                    last = received
-                    latest = frame
-                    times.append(received)
-                    while times and received - times[0] > 1:
-                        times.popleft()
-
-        sdk.PXREAInit.argtypes = [C.c_void_p, callback_type, C.c_uint]
-        sdk.PXREAInit.restype = C.c_int
-        sdk.PXREADeinit.argtypes = []
-        sdk.PXREADeinit.restype = C.c_int
-        result = sdk.PXREAInit(None, callback, 0xffffffff)
-        if result != 0:
-            raise RuntimeError(f'PXREAInit failed: {result}')
-        try:
-            while not args.duration or time.monotonic() - start < args.duration:
-                time.sleep(.5)
-                with lock:
-                    now = time.monotonic()
-                    age = None if last is None else now - last
-                    while times and now - times[0] > 1:
-                        times.popleft()
-                    fresh = latest is not None and age is not None and age <= args.timeout
-                    print(json.dumps({'status': 'receiving' if fresh else 'stale' if last else 'waiting',
-                                      'local_callback_sequence': sequence, 'age_s': age,
-                                      'tracking_callbacks_hz_1s': len(times),
-                                      'current_frame': latest if fresh else None}), flush=True)
-        except KeyboardInterrupt:
-            pass
-        finally:
-            sdk.PXREADeinit()
+    next_status = start
+    times = deque()
+    worker.start()
+    try:
+        while not args.duration or time.monotonic() - start < args.duration:
+            worker.raise_if_failed()
+            for packet in worker.drain():
+                source.ingest(packet.payload.decode(), packet.receive_monotonic_ns)
+                times.append(packet.receive_monotonic_ns)
+            now = time.monotonic_ns()
+            while times and now - times[0] > 1_000_000_000:
+                times.popleft()
+            if time.monotonic() >= next_status:
+                age = None if source.received_ns is None else (now-source.received_ns)/1e9
+                fresh = source.frame is not None and age is not None and 0 <= age <= args.timeout
+                print(json.dumps({'status':'receiving' if fresh else 'stale' if age else 'waiting',
+                    'local_callback_sequence':worker.sequence, 'age_s':age,
+                    'tracking_callbacks_hz_1s':len(times),
+                    'preview_rejection':source.preview_rejection(now),
+                    'current_frame':source.frame if fresh else None}), flush=True)
+                next_status = time.monotonic() + .5
+            time.sleep(.005)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        worker.close()
 
 
 if __name__ == '__main__':
