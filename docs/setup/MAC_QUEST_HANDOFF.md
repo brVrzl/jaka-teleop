@@ -1,6 +1,54 @@
 # Mac / Quest 右 Touch 交接
 
-## 本次收工状态（2026-10-23）
+## 当前接力：阶段二发送端（2026-10-26）
+
+旧 HTS/CTRL → JAKA/RH56 实体显示器仿真已经由操作者确认通过，见
+[实际证据](DEVICE_STATUS.md#rh56-实体显示器仿真验收2026-10-26)。
+集成分支为 `work/jaka-teleop-sim-integration`。文档入口优化、Thor onboarding、
+recovery 和 test-prune 已全部包含，无需重复合并；不合并独立研究分支。
+
+**Mac Codex 负责 Quest USB/ADB、发送端构建和真实输入；Thor Codex 负责 host
+控制会话、MuJoCo 和 DH 仿真。不要同时修改 host 的 RightTouchInput/Clutch/IK。**
+本任务不授权 JAKA 或 DH 实物动作，不升级 Quest 固件，不卸载已有应用或清除应用数据。
+
+可直接交给 Mac Codex 的工作顺序：
+
+1. 检查现有工作区/未提交修改，fetch 集成分支；有其他任务改动时用独立 worktree。
+   保留旧分支，不 reset、不 force push。以本节为当前任务，后文 10-23 状态仅作历史证据。
+2. 用已有 `~/Library/Android/sdk/platform-tools/adb` 检查 `devices -l`、前台包名、
+   已装 HTS/XRobo/Trossen 包版本及日志，确认旧应用是否真的包含 Right Touch 模式。
+   不凭相同版本号推定 APK 来源。用终端/现有投屏能力操作，不要求 Thor 鼠标键盘。
+3. 盘点 Unity Hub、Unity 6000.0.65f1、Android Build Support/SDK/NDK/OpenJDK 和
+   Editor 授权。复用现有环境；缺 Editor/许可时报告准确缺项，不擅自升级工程或伪造构建成功。
+4. 优先按 [现有发送端说明](../../quest_sender/README.md) 在独立 checkout 应用
+   `quest_sender/right-touch-v1.patch`，复用 pinned `5b8eac7` 的工程、菜单、UDP socket。
+   Thor 已重新拉取该提交并通过 `git apply --check`，但没有 Unity 编译或 APK 验收。
+   执行 EditMode 测试和 Android build，保留日志。若必须修补，修改该补丁并报告具体编译错误，
+   不另建完整发送端框架，不更换坐标契约或削弱 validity。
+5. 构建成功后核对独立包 `com.brvrzl.handtrackingstreamer.righttouch`，保留所有旧包，
+   安装并打开 Right Touch 模式，目标 Thor `10.24.1.68:9000` UDP。首次开发者授权等
+   系统确认若必须用户处理，请准确指出一次，不绕过平台权限。
+6. 通知 Thor 启动已有 input-only 接收器，记录真实 RTOUCH：右控制器位置/旋转、
+   Head、connected/active/tracked、Grip/Trigger、源 session/seq/t_ns。
+   分别检查释放、按住、遮挡、后台/恢复、停流/重启和 recenter；session 不连续应可观测。
+   不用主机序号冒充源序号，不从 Grip 或位姿变化推断 tracked。
+7. 返回包名/版本、构建测试结果、发送端实际菜单、真实包样例、原始记录路径及未完成项。
+   无法构建时明确卡在何处；XRobo 缺字段的流不能直接包装为有效 RTOUCH。
+
+Thor 的只读接收入口（先确认 9000 未占用；为每次运行使用新的输出文件）：
+
+```bash
+cd /home/user01/projects/embodied-hand-lab
+PYTHONPATH=src ~/.venvs/embodied-hand-lab/bin/python tools/quest_controller_transport_gate.py \
+  --input-mode right-touch-v1 --project-ip 10.24.1.68 --port 9000 \
+  --duration-sec 60 --required-data-timeout-sec 45 \
+  --report /tmp/right-touch-input.json --raw-log /tmp/right-touch-input.raw.jsonl \
+  --log /tmp/right-touch-input.log
+```
+
+有效真实发送端确认后再接入统一 Grip 会话及 DH 仿真；阶段二联合仿真通过前不进入阶段三。
+
+## 历史收工状态（2026-10-23）
 
 用户要求今天结束，已停止 Thor 本轮 SDK 观察器和 RoboticsServiceProcess；未发送任何 JAKA/DH 指令。
 收工时 USB 已断开，adb 无法停止 Quest 应用或恢复接近传感器；最后已知设置仍为 Disable For 8 Hours。
