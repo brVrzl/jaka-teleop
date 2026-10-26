@@ -23,6 +23,7 @@ class _PoseBuffer(Protocol):
 
 class _SmoothSession(Protocol):
     buffer: _PoseBuffer
+    parallel_trigger: AnalogClutchSample
 
     def ingest_shared_state(self, state: CanonicalQuestState, *, pose_only: bool = False) -> bool: ...
 
@@ -112,6 +113,7 @@ class LiveQuestControllerRouter:
     def _publish_touch(self, session: _SmoothSession) -> None:
         assert self.touch is not None
         sample = self.touch.arm_sample
+        session.parallel_trigger = self.touch.trigger_sample
         disabled_hand = AnalogClutchSample(0.0, sample.host_receive_monotonic_ns,
             sample.sequence_number, valid=False)
         session.set_clutch_samples(index=sample, grip=disabled_hand,
@@ -125,8 +127,7 @@ class LiveQuestControllerRouter:
                 "malformed_controller_datagrams": self.touch.malformed,
                 "controller_valid": state.controller_valid,
                 "controller_stale": state.stale,
-                "gripper_target_normalized": self.touch.gripper_target_normalized,
-                "gripper_target_is_feedback": False}
+                "trigger": self.touch.trigger_sample.value}
         state = self.last_state
         packet = state.latest
         return {

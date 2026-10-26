@@ -10,6 +10,7 @@ data/*
 !data/.gitkeep
 !assets/
 assets/*
+!assets/dh_pge_50_26_proxy.xml
 !assets/jaka_rh56.xml
 !assets/jaka_rh56_visual_coacd.xml
 !assets/jaka_rh56_visual_coacd.manifest.json

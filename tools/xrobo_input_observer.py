@@ -8,7 +8,6 @@ import argparse
 from collections import deque
 import ctypes as C
 import json
-import math
 from pathlib import Path
 import threading
 import time
@@ -19,26 +18,7 @@ class DeviceState(C.Structure):
     _fields_ = [('device_id', C.c_char * 32), ('state_json', C.c_char * 16352)]
 
 
-def parse_tracking(raw):
-    envelope = json.loads(raw)
-    if envelope.get('functionName') != 'Tracking':
-        return None
-    value = json.loads(envelope['value'])
-    right = value['Controller']['right']
-    pose = [float(x) for x in right['pose'].split(',')]
-    if len(pose) != 7 or not all(math.isfinite(x) for x in pose):
-        raise ValueError('invalid right pose')
-    for key in ('grip', 'trigger'):
-        number = right[key]
-        if type(number) not in (int, float) or not math.isfinite(number) or not 0 <= number <= 1:
-            raise ValueError(f'invalid right {key}')
-    return {'right_controller': right, 'position_m': pose[:3],
-            'orientation_xyzw': pose[3:], 'head': value.get('Head'),
-            'app_state': value.get('appState'), 'input_device': value.get('Input'),
-            'source_time_stamp_ns': value.get('timeStampNs'),
-            'source_predict_time_us': value.get('predictTime'),
-            'missing': [key for key in ('is_tracked', 'status', 'connected') if key not in right],
-            'source_sequence': None, 'source_session': None}
+from motion_input.xrobo import parse_tracking
 
 
 def main():

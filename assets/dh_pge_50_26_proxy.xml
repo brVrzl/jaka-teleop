@@ -1,0 +1,27 @@
+<mujoco model="dh_pge_50_26_PROXY_NOT_CALIBRATED">
+  <!-- Dimension/mass proxy: official EN.23.01 catalog p19, 97x55x29 mm,
+       total stroke 26 mm, mass 0.4 kg. Box split, fingertips, 9 mm mounting
+       spacer and inertia distribution are simulation assumptions, not CAD. -->
+  <worldbody>
+    <body name="jaka_dh_base" pos="0 0 0.009">
+      <geom name="jaka_dh_housing" type="box" size="0.0275 0.0145 0.0385"
+            pos="0 0 0.0385" mass="0.36" rgba="0.15 0.18 0.22 1"/>
+      <body name="jaka_dh_tcp" pos="0 0 0.097"/>
+      <body name="jaka_dh_left_finger" pos="0.0161 0 0.087">
+        <joint name="dh_left_slide" type="slide" axis="1 0 0" range="-0.013 0" damping="8"/>
+        <geom name="jaka_dh_left_pad" type="box" size="0.003 0.010 0.010"
+              mass="0.02" rgba="0.7 0.72 0.76 1"/>
+      </body>
+      <body name="jaka_dh_right_finger" pos="-0.0161 0 0.087">
+        <joint name="dh_right_slide" type="slide" axis="-1 0 0" range="-0.013 0" damping="8"/>
+        <geom name="jaka_dh_right_pad" type="box" size="0.003 0.010 0.010"
+              mass="0.02" rgba="0.7 0.72 0.76 1"/>
+      </body>
+    </body>
+  </worldbody>
+  <equality><joint joint1="dh_left_slide" joint2="dh_right_slide" polycoef="0 1 0 0 0"/></equality>
+  <actuator>
+    <position name="dh_left_position" joint="dh_left_slide" kp="1000" kv="20" ctrllimited="true" ctrlrange="-0.013 0"/>
+    <position name="dh_right_position" joint="dh_right_slide" kp="1000" kv="20" ctrllimited="true" ctrlrange="-0.013 0"/>
+  </actuator>
+</mujoco>

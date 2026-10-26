@@ -16,6 +16,8 @@ from typing import Any, Protocol, Sequence
 
 import numpy as np
 
+from teleoperation.parallel_gripper import ParallelGripperControl
+
 from motion_input import CanonicalQuestState, HtsCanonicalAssembler, Pose6D, SerializationError, parse_hts_datagram
 from motion_input.hts_transport import ReceivedHtsDatagram
 
@@ -114,6 +116,7 @@ class SmoothQuestJakaSession:
         control_compute_budget_ms: float | None = None,
         normalized_hand_output: NormalizedHandOutput | None = None,
         arm_input_enabled: bool = True,
+        parallel_gripper: ParallelGripperControl | None = None,
     ) -> None:
         filter_values = config.raw.get("filter", {})
         profile_name = str(filter_values.get("selected_profile", "simulation_exploration"))
@@ -136,6 +139,9 @@ class SmoothQuestJakaSession:
                 raise ValueError("a plant-free target generator requires an explicit output adapter")
             arm_output = MujocoArmTargetAdapter(self.mujoco_plant)
         self.arm_output = arm_output
+        self.parallel_gripper = parallel_gripper
+        self.parallel_trigger = AnalogClutchSample(0, 0, 0, valid=False)
+        self._gripper_reference_generation = None
         self.normalized_hand_output = normalized_hand_output
         self.arm_input_enabled = bool(arm_input_enabled)
         self.input_recovery_timeout_ns = int(
@@ -459,7 +465,13 @@ class SmoothQuestJakaSession:
     def ingest_shared_state(self, state: CanonicalQuestState, *, pose_only: bool = False) -> bool:
         """Broadcast one already-canonical Quest sample into this policy state."""
 
-        if pose_only and state.raw_source_metadata.get("input_mode") != "right-touch-v1":
+        if state.raw_source_metadata.get("input_mode") == "xrobo-native-experimental":
+            if (self.mujoco_plant is None or not isinstance(self.arm_output, MujocoArmTargetAdapter)
+                    or self.normalized_hand_output is not None):
+                raise ValueError("unverified XRobo input is restricted to the MuJoCo output")
+        if pose_only and state.raw_source_metadata.get("input_mode") not in {
+            "right-touch-v1", "xrobo-native-experimental"
+        }:
             raise ValueError("pose-only input requires the explicit right Touch protocol")
         self._shared_input_mode = True
         self.latest_state = state
@@ -516,6 +528,11 @@ class SmoothQuestJakaSession:
         *,
         automatic_reanchor_safe: bool = False,
     ) -> ArmControlTickResult:
+        if self.parallel_gripper is not None:
+            self.parallel_gripper.observe(now_ns)
+            if (self._index_sample.fresh(now_ns, self.arm_clutch.stale_after_ns)
+                    and not self.parallel_trigger.fresh(now_ns, self.arm_clutch.stale_after_ns)):
+                self.arm_clutch.fault(now_ns, "PARALLEL_TRIGGER_STALE_OR_INVALID")
         tick_started_ns = time.perf_counter_ns()
         timing_values = [0] * len(CONTROL_TIMING_FIELDS)
         self._control_tick_count += 1
@@ -768,7 +785,7 @@ class SmoothQuestJakaSession:
                 control_compute_budget_exhausted=False,
                 control_tick_wall_ms=(time.perf_counter_ns() - tick_started_ns) / 1e6,
             )
-            self._publish_event_record(record, detailed=True)
+            self._finish_control_tick(record, detailed=True)
             event_diagnostic_duration_ns += time.perf_counter_ns() - diagnostic_started_ns
             self._finish_control_timing(
                 now_ns,
@@ -1069,7 +1086,7 @@ class SmoothQuestJakaSession:
                     adapter_dispatch_ms=0.0,
                     control_tick_wall_ms=(time.perf_counter_ns() - tick_started_ns) / 1e6,
                 )
-                self._publish_event_record(record, detailed=True)
+                self._finish_control_tick(record, detailed=True)
                 event_diagnostic_duration_ns += time.perf_counter_ns() - diagnostic_started_ns
                 self._finish_control_timing(
                     now_ns,
@@ -1128,7 +1145,7 @@ class SmoothQuestJakaSession:
                 adapter_dispatch_ms=adapter_dispatch_ms,
                 control_tick_wall_ms=(time.perf_counter_ns() - tick_started_ns) / 1e6,
             )
-            self._publish_event_record(record, detailed=True)
+            self._finish_control_tick(record, detailed=True)
             event_diagnostic_duration_ns += time.perf_counter_ns() - diagnostic_started_ns
             self._finish_control_timing(
                 now_ns,
@@ -1235,7 +1252,7 @@ class SmoothQuestJakaSession:
                 accepted_joint_target_rad=list(accepted_target.joint_position_rad),
                 accepted_diagnostics=asdict(accepted_target.diagnostics),
             )
-        self._publish_event_record(record, detailed=detailed_record)
+        self._finish_control_tick(record, detailed=detailed_record)
         event_diagnostic_duration_ns += time.perf_counter_ns() - diagnostic_started_ns
         self._finish_control_timing(
             now_ns,
@@ -1732,11 +1749,25 @@ class SmoothQuestJakaSession:
             raise ValueError("hand joint and actuator ranges do not overlap")
         return joint_range, ctrl_range, valid_range
 
-    def _publish_event_record(
+    def _finish_control_tick(
         self, record: dict[str, Any], *, detailed: bool
     ) -> None:
-        """Publish one current record; retain only useful detailed history."""
+        """Finish shared gripper authorization, then publish bounded diagnostics."""
 
+        if self._shared_input_mode and self.latest_state is not None:
+            record["input_evidence"] = dict(self.latest_state.raw_source_metadata)
+        if self.parallel_gripper is not None:
+            now_ns = record["control_monotonic_ns"]
+            self.parallel_gripper.update(
+                authorized=self.arm_clutch.state is ArmClutchState.ENGAGED,
+                capture=self._gripper_reference_generation != self.reference_generation,
+                trigger=self.parallel_trigger.value,
+                source_ns=self.parallel_trigger.host_receive_monotonic_ns, now_ns=now_ns,
+            )
+            self._gripper_reference_generation = self.reference_generation
+            record["parallel_gripper_observation"] = asdict(self.parallel_gripper.observation)
+            record["parallel_gripper_command"] = (None if self.parallel_gripper.command is None
+                else asdict(self.parallel_gripper.command))
         self.latest_event_record = record
         if detailed:
             self.event_records.append(record)
@@ -1804,7 +1835,7 @@ class SmoothQuestJakaSession:
         mapping = self.arm_mapper.last_telemetry
         plant = self.mujoco_plant
         hand_positions = None
-        if plant is not None:
+        if plant is not None and plant.hand_available:
             hand_positions = plant.data.qpos[
                 plant.model.jnt_qposadr[
                     plant.model.actuator_trnid[plant.hand_actuator_ids, 0]

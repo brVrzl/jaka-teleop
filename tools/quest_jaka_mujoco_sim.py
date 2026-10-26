@@ -159,7 +159,7 @@ def _parser() -> argparse.ArgumentParser:
         "replay-6dof", help="deterministic fixed-rate filtered 6-DoF replay"
     )
     smooth_replay.add_argument("recording", type=Path)
-    smooth_replay.add_argument("--input-mode", choices=("hts-ctrl-v1", "right-touch-v1"), default="hts-ctrl-v1")
+    smooth_replay.add_argument("--input-mode", choices=("hts-ctrl-v1", "right-touch-v1", "xrobo-native-experimental"), default="hts-ctrl-v1")
     smooth_replay.add_argument(
         "--config",
         type=Path,
@@ -230,19 +230,29 @@ def _make_smooth_session(
         config.mjcf_path,
         output,
         arm_only=not hand_enabled,
+        end_effector_component=config.raw.get("simulation", {}).get("end_effector_component"),
     )
     simulation = JakaMujocoSimulation(config, mjcf_path=augmented)
-    target_generator = SharedJakaTargetGenerator(config, mjcf_path=config.mjcf_path)
+    target_generator = SharedJakaTargetGenerator(config, mjcf_path=(augmented
+        if config.raw.get("simulation", {}).get("end_effector_component") else config.mjcf_path))
     arm_output = (
         MujocoArmTargetAdapter(simulation)
         if arm_output_mode == ArmOutputMode.SHAPED_500HZ.value
         else JakaEquivalent125HzMujocoAdapter(simulation)
     )
+    parallel_gripper = None
+    if "parallel_gripper" in config.raw:
+        from teleoperation.parallel_gripper import ParallelGripperControl
+        from quest_jaka_sim.parallel_gripper import MujocoParallelGripper
+        profile = config.raw["parallel_gripper"]
+        parallel_gripper = ParallelGripperControl(MujocoParallelGripper(simulation, profile, target_generator=target_generator),
+            maximum_rate=float(profile["maximum_rate"]))
     return simulation, SmoothQuestJakaSession(
         config,
         target_generator,
         arm_output=arm_output,
         mujoco_plant=simulation,
+        parallel_gripper=parallel_gripper,
     )
 
 
@@ -363,11 +373,12 @@ def _viewer(simulation: JakaMujocoSimulation):
         show_left_ui=False,
         show_right_ui=False,
     )
-    handle.opt.geomgroup[5] = 1
-    handle.cam.azimuth = -130
-    handle.cam.elevation = -25
-    handle.cam.distance = 1.25
-    handle.cam.lookat[:] = [-0.05, -0.30, 0.24]
+    camera = simulation.config.raw.get("viewer_camera", {})
+    handle.opt.geomgroup[5] = int(camera.get("show_target_markers", True))
+    handle.cam.azimuth = float(camera.get("azimuth", -130))
+    handle.cam.elevation = float(camera.get("elevation", -25))
+    handle.cam.distance = float(camera.get("distance", 1.25))
+    handle.cam.lookat[:] = camera.get("lookat", [-0.05, -0.30, 0.24])
     print(f"VIEWER_CAMERA_LOOKAT={handle.cam.lookat.tolist()}")
     print(f"VIEWER_CAMERA_DISTANCE={handle.cam.distance:g}")
     print(f"VIEWER_CAMERA_AZIMUTH={handle.cam.azimuth:g}")
@@ -400,6 +411,7 @@ def _sync_viewer(
     arm = getattr(session, "arm_clutch", None)
     hand = getattr(session, "hand_clutch", None)
     latest = session.event_records[-1] if getattr(session, "event_records", None) else {}
+    evidence_label = getattr(session, "input_evidence_label", "")
     metrics = latest.get("metrics") or {}
     debug_text = ""
     if getattr(session, "ik_debug", False) and metrics:
@@ -430,17 +442,23 @@ def _sync_viewer(
         if getattr(session, "clutch_provider", "unavailable") == "quest_ctrl_udp_v1"
         else "Clutches require an explicit timestamped provider"
     )
+    parallel = getattr(session, "parallel_gripper", None)
+    gripper_text = ""
+    if parallel is not None:
+        gripper_text = (f"DH PROXY / RIGHT GRIP=shared clutch / TRIGGER=close\n"
+            f"closed command={None if parallel.command is None else round(parallel.command.closed_fraction,3)} "
+            f"simulated={None if parallel.observation is None else round(parallel.observation.closed_fraction,3)}\n")
     texts = [
         (
             None,
             mujoco.mjtGridPos.mjGRID_TOPLEFT,
-            "Quest -> JAKA SIM ONLY",
+            f"{evidence_label} Quest -> JAKA SIM ONLY",
             (
-                f"arm={getattr(getattr(arm, 'state', None), 'value', 'legacy')} "
+                gripper_text + f"arm={getattr(getattr(arm, 'state', None), 'value', 'legacy')} "
                 f"hand={getattr(getattr(hand, 'state', None), 'value', 'legacy')}\n"
                 f"index={latest.get('index_trigger_value', 0.0):.2f} age={latest.get('index_trigger_age_s', 0.0):.3f}s "
                 f"grip={latest.get('grip_trigger_value', 0.0):.2f} age={latest.get('grip_trigger_age_s', 0.0):.3f}s\n"
-                f"wrist_valid={latest.get('right_wrist_valid', session.right_hand_valid)} "
+                f"{'preview_pose_usable_UNVERIFIED' if evidence_label else 'wrist_valid'}={latest.get('right_wrist_valid', session.right_hand_valid)} "
                 f"age={latest.get('right_wrist_age_s')} skeleton_valid={latest.get('hand_skeleton_valid')}\n"
                 f"target={session.last_reason} accepted={session.accepted_targets}\n"
                 f"arm_ref={latest.get('arm_reference_pose')}\n"
@@ -521,7 +539,7 @@ def _run_manifest(
             "middle",
             "ring",
             "pinky",
-        ],
+        ] if simulation.hand_available else [],
         "rates_hz": {
             "target_generation": target_hz,
             "selected_arm_output": (
@@ -1123,19 +1141,34 @@ def _replay_6dof(args: argparse.Namespace) -> int:
         config,
         arm_output_mode=args.arm_output_mode,
     )
-    datagrams = list(HtsRawRecordingReader(args.recording).datagrams())
+    if args.input_mode == "xrobo-native-experimental":
+        from motion_input.hts_transport import ReceivedHtsDatagram
+        datagrams = []
+        with args.recording.open() as source:
+            for line in source:
+                value = json.loads(line)
+                received_ns = int(value["host_callback_monotonic_s"] * 1e9)
+                datagrams.append(ReceivedHtsDatagram(value["raw_payload"].encode(),
+                    "native-sdk-callback", 0, received_ns, 0))
+    else:
+        datagrams = list(HtsRawRecordingReader(args.recording).datagrams())
     if not datagrams:
         raise SystemExit("recording contains no datagrams")
     base_ns = datagrams[0].receive_monotonic_ns
-    recorded_controller = any(
+    recorded_controller = args.input_mode == "xrobo-native-experimental" or any(
         datagram.payload.startswith((b"CTRL,", b"RTOUCH,")) for datagram in datagrams
     )
     clutch_config = config.raw.get("clutches", {})
-    controller_router = LiveQuestControllerRouter(
-        stale_after_s=float(clutch_config.get("stale_after_ms", 150.0)) / 1000.0,
-        released_at=float(clutch_config.get("released_at", 0.55)),
-        input_mode=getattr(args, "input_mode", "hts-ctrl-v1"),
-    )
+    if args.input_mode == "xrobo-native-experimental":
+        from quest_jaka_sim.xrobo_input import XRoboSimulationRouter
+        controller_router = XRoboSimulationRouter(stale_after_s=config.raw["clutches"]["stale_after_ms"] / 1000.)
+        session.input_evidence_label = "XROBO UNVERIFIED / SIMULATION ONLY"
+    else:
+        controller_router = LiveQuestControllerRouter(
+            stale_after_s=float(clutch_config.get("stale_after_ms", 150.0)) / 1000.0,
+            released_at=float(clutch_config.get("released_at", 0.55)),
+            input_mode=getattr(args, "input_mode", "hts-ctrl-v1"),
+        )
     if args.input_mode == "right-touch-v1" and not any(d.payload.startswith(b"RTOUCH,") for d in datagrams):
         raise SystemExit("right-touch-v1 replay requires recorded RTOUCH frames")
     recorded_end_ns = datagrams[-1].receive_monotonic_ns
@@ -1147,6 +1180,8 @@ def _replay_6dof(args: argparse.Namespace) -> int:
     rates = config.raw.get("rates", {})
     control_period_ns = int(round(1e9 / float(rates.get("target_generation_hz", 60.0))))
     sim_period_ns = int(round(simulation.model.opt.timestep * 1e9))
+    # Include the last callback even when its time lies between simulation ticks.
+    end_ns = base_ns + ((end_ns - base_ns + sim_period_ns - 1) // sim_period_ns) * sim_period_ns
     viewer_period_ns = int(round(1e9 / float(rates.get("viewer_hz", 60.0))))
     handle = _viewer(simulation) if args.viewer else None
     realtime = bool(args.realtime or args.viewer)

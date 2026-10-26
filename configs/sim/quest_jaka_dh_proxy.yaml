@@ -1,0 +1,21 @@
+# Simulation only; same JAKA policy/model, replacement end effector component.
+base_config: configs/sim/quest_hts_jaka_mini2_live_demo.yaml
+schema_version: quest_jaka_dh_proxy.v1
+hand_retargeting:
+  enabled: false
+simulation:
+  end_effector_component: assets/dh_pge_50_26_proxy.xml
+  tcp_body_name: jaka_dh_tcp
+provisional_calibration:
+  rotation_operator_to_robot_basis: [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+parallel_gripper:
+  actuators: [dh_left_position, dh_right_position]
+  open_position: [0.0, 0.0]
+  closed_position: [-0.013, -0.013]
+  maximum_rate: 1.0
+viewer_camera:
+  show_target_markers: false
+  lookat: [0.02, 0.24, 0.25]
+  distance: 1.0
+  azimuth: -130
+  elevation: -25

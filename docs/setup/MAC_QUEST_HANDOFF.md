@@ -52,6 +52,21 @@ PYTHONPATH=src ~/.venvs/embodied-hand-lab/bin/python tools/quest_controller_tran
 
 有效真实发送端确认后再接入统一 Grip 会话及 DH 仿真；阶段二联合仿真通过前不进入阶段三。
 
+### Thor 后续进展与 Mac 最小补充
+
+Thor 已复制并独立分析同轮原始回调，确认全部30,328帧断连全零；已完成
+严格隔离的 XRobo native replay 与 JAKA + DH 代理模型联合仿真，见
+[Thor证据与限制](DEVICE_STATUS.md#xrobo-原生输入与-dh-代理仿真2026-10-26thor)。
+当前开发分支 `work/jaka-teleop-xrobo-dh-sim`。不要重复 RH56 验收或重开 HTS UI 开发。
+
+Mac 下一小步：恢复右 Touch 连接，使用 XRobo 原生 input-only 重新记录 Grip/Trigger/B、
+停流恢复和应用重启；保留原始回调及事件标记。核对 Head root pose 和 Controller visual
+world transform 是否位于同一运行时参考空间。若补充原生消息，只增加从 SDK 读取的
+右控制器 IsConnected/IsPoseValid、应用源 session/seq 与 tracking-origin/recenter 代次，
+不要从非零姿态或主机回调计数推断这些字段。先提交真实样例和负面转换结果，
+不要把新字段接进物理控制或更改 Thor host 管线。Thor 目前不等这项结果继续离线仿真，
+但实时联合验收仍须等待连接与必要证据完成。
+
 ### Mac 本轮执行结果：XRobo 原生基础输入已证实，重连待补（2026-10-26）
 
 ADB Quest 3 `2G97C5ZJ2901FK` 已授权；Android 14 / API 34，Horizon 分支

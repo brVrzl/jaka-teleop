@@ -608,6 +608,14 @@ class ReplayConfig:
     @classmethod
     def load(cls, path: str | Path) -> "ReplayConfig":
         raw = load_yaml(path)
+        if "base_config" in raw:
+            base = load_yaml(raw.pop("base_config"))
+            for key, value in raw.items():
+                if isinstance(value, dict) and isinstance(base.get(key), dict):
+                    base[key] = {**base[key], **value}
+                else:
+                    base[key] = value
+            raw = base
         hardware_adapter = raw.get("hardware_adapter", {})
         if not isinstance(hardware_adapter, dict):
             raise ValueError("hardware_adapter must be a mapping")
@@ -763,6 +771,7 @@ def build_viewer_mjcf(
     output_path: str | Path,
     *,
     arm_only: bool = False,
+    end_effector_component: str | Path | None = None,
 ) -> Path:
     base = Path(base_path).resolve()
     output = Path(output_path).resolve()
@@ -779,6 +788,25 @@ def build_viewer_mjcf(
             for child in list(actuator):
                 if child.get("name", "").startswith("rh56_"):
                     actuator.remove(child)
+    if end_effector_component is not None:
+        # Keep the canonical JAKA body tree and safety geometry; replace only RH56.
+        for parent in list(root.iter()):
+            for child in list(parent):
+                if any(value.startswith("rh56_") for value in child.attrib.values()):
+                    parent.remove(child)
+        component = ET.parse(end_effector_component).getroot()
+        flange = root.find(".//body[@name='jaka_Link_6']")
+        if flange is None:
+            raise ValueError("canonical JAKA flange not found")
+        for body in component.find("worldbody"):
+            flange.append(copy.deepcopy(body))
+        for section in ("actuator", "equality", "contact", "asset"):
+            additions = component.find(section)
+            if additions is not None:
+                destination = root.find(section)
+                if destination is None:
+                    destination = ET.SubElement(root, section)
+                destination.extend(copy.deepcopy(list(additions)))
     world = root.find("worldbody")
     if world is None:
         raise RuntimeError("MuJoCo model has no worldbody")
@@ -859,6 +887,7 @@ class SharedJakaTargetGenerator:
         self.ik = PalmTargetIkState(
             list(config.initial_arm_joints_rad),
             mjcf_path=path,
+            tcp_body_name=config.raw.get("simulation", {}).get("tcp_body_name", "rh56_R_hand_base_link"),
             ik_gain=config.ik_gain,
             ik_damping=config.ik_damping,
             ik_max_step_rad=config.ik_max_step_rad,

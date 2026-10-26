@@ -68,11 +68,44 @@ continuity. It does **not** receive a synthetic continuity generation and
 retains release/reclutch recovery. Synthetic tests are labelled explicitly;
 recorded unknown/invalid controls are not upgraded into valid controls.
 
-Trigger gripper intention has its own release gate, relative reference,
-measured initialization and rate limit in `RightTouchInput`. Arm recovery never
-opens, seeds or resumes the gripper automatically. The input-only preview
-reports `gripper_engaged`, not an authoritative arm clutch. RH56 skeleton
-retargeting and its independent hand clutch remain separate.
+Parallel grippers use `teleoperation.parallel_gripper`: `GripperCommand`
+(closed fraction, command/source host times) is separate from `GripperObservation`
+(measured fraction, measurement/query times, validity, fault and source). The
+session's existing `ArmClutchMachine` is the sole authorization source. Input
+adapters emit raw Grip/Trigger facts; the former `RightTouchInput._gripper_clutch`
+and its independent engagement/seed logic were removed. Relative Trigger capture,
+measured startup seed, clipping and rate limiting live in `ParallelGripperControl`.
+Acquisition emits no command; release/staleness retains the last intent. A trusted
+RTOUCH reanchor captures a fresh Trigger reference without chasing missed changes.
+Feedback failures abort the joint session before further arm target generation;
+HOLD is not a claim that a physical motor has stopped. RH56 keeps its native six
+channels and independent hand clutch.
+
+The MuJoCo adapter owns actuator names and endpoint units, maps the same normalized
+command to two joints, and reports measured `qpos` separately from `ctrl`. A reversed
+255-unit fake output and a forward 1000-unit output exercise the same policy in a
+small substitution test; no second persistent device framework is installed.
+No DH hardware implementation is enabled by the simulation profile.
+
+### XRobo native experimental boundary
+
+`motion_input.xrobo` parses original PC-Service SDK JSON callbacks, preserving
+unknown controller validity, source sequence/session and common reference-space
+verification. Host callback count is explicitly local; `timeStampNs` is source UTC,
+`predictTime` is application elapsed microseconds. Coordinates have already been
+converted by upstream; no second Z flip is performed. Repeated/regressing source
+time, stale callbacks, missing focus/head, malformed poses and the observed zero
+controller sentinel fail experimental admission. Nonzero pose is never tracking proof.
+
+`quest_jaka_sim.xrobo_input.XRoboSimulationRouter` is an explicitly unverified,
+replay-only bridge. It produces LIMITED canonical poses with numeric preview
+usability, **not source tracking validity**, and records the unknown evidence on
+control events. `ingest_shared_state` refuses that mode for non-MuJoCo arm outputs
+or physical hand outputs. The ordinary hardware entry has no XRobo mode.
+No continuity generation is synthesized: gaps, time reset, malformed input and
+B stop require HOLD followed by fresh released Grip and a new press. The RTOUCH
+300 ms automatic recovery rule is unavailable. Unsignalled recenter cannot be
+reliably detected, so live joint control remains gated on source/space validation.
 
 ## Retained and removed paths
 

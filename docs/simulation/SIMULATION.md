@@ -72,3 +72,49 @@ arm/hand 关节反馈与 viewer 更新统计；合成测试和 replay 不能替�
 Live 与 replay 的 `.events.jsonl` 按控制 tick 持续写入，包含实际仿真关节和命令；
 内存诊断仍只保留最近 128 tick，因此报告中的部分延迟统计是末段窗口，不是全程统计。
 请为每次运行指定新的输出文件名，保留原始 raw JSONL。
+
+## XRobo native + DH proxy
+
+这是**未验证的离线实验**，不授予真机控制权，也不代表 XRobo 实时联合验收通过。
+输入为 PC Service native SDK 的 JSON 回调记录，不是 UDP9000/RTOUCH。
+使用已有脚本选择 `--profile dh-proxy --input-mode xrobo-native-experimental`；
+不提供 `--recording` 会明确拒绝启动实时控制。右 Grip 是唯一共同 Clutch，
+右 Trigger 越深越闭合；B 停止。释放、断流和重新接管保持上次安全意图，
+重新捕获 Trigger 参考而不追赶间断期间的变化。XRobo 不自动重锚，必须释放再按。
+
+```bash
+# 原生输入-only；只接收 SDK 回调，另需已启动的 PC Service
+PYTHONPATH=src ~/.venvs/embodied-hand-lab/bin/python tools/xrobo_input_observer.py \
+  --sdk /absolute/path/to/libPXREARobotSDK.so \
+  --log /tmp/xrobo-new.raw.jsonl --duration 60
+
+# DH + JAKA 原生记录实验回放；默认 Thor 实体显示器
+./scripts/run_quest_jaka_sim_demo.sh --profile dh-proxy \
+  --input-mode xrobo-native-experimental --recording /path/to/native/raw.jsonl \
+  --log-dir outputs/xrobo-replay
+
+# 无窗口回放；--duration-sec 可限制回放前段
+./scripts/run_quest_jaka_sim_demo.sh --profile dh-proxy \
+  --input-mode xrobo-native-experimental --recording /path/to/native/raw.jsonl \
+  --display-mode headless --duration-sec 30 --log-dir outputs/xrobo-headless
+
+# 备用、具有明确源有效性协议的 RTOUCH（仍不代表已通过实机发送端验收）
+./scripts/run_quest_jaka_sim_demo.sh --profile dh-proxy --input-mode right-touch-v1 \
+  --duration-sec 60 --log-dir outputs/rtouch-sim
+```
+
+`--display-mode forward` 仍须显式 SSH X11；所有这些入口均不连接物理执行器。
+`--log-dir` 新建带时间戳文件，原始回放记录不被改写。
+DH [模型尺寸、惯量与安装假设](../../assets/README.md#dh-pge-50-26-simulation-proxy)
+与现场工具不是等价关系。画面显示 DH PROXY、命令闭合比例与实际模拟反馈。
+事件的 `parallel_gripper_command` 和 `parallel_gripper_observation` 分开记录；
+没有新命令时 command 可为 null，不能据此称设备已机械停止。
+部分控制事件为精简记录，不含逐关节 arm `qpos`；实际关节统计须使用带测量的事件。
+报告的 `input_frame_count` 是有界历史统计，完整 callback 数请看 `local_callback_count`。
+
+XRobo 的 `controller_connected/tracked`、源 session/sequence 和共同参考空间均为
+unknown/unverified；通过数值检查只允许该离线实验。`input_evidence` 保留未知字段，
+界面的 preview usability 不是 tracking 证明。重启后全零输入，即使 Head status=3
+且回调仍达90 Hz，也不会接管。收到时间倒退、重复、断流或 B 时要求重新明确接管。
+真实 XRobo live 还需恢复手柄连接、验证共同坐标空间，并补实际有效性与连续性证据；
+在此之前只运行 input-only 和离线仿真，不使用缓存位置伪造新鲜反馈。

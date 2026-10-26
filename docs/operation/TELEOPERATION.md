@@ -44,3 +44,7 @@ operator prerequisites。
 共享 arm 管线只有在 release 后才捕获 reference，会拒绝过期或格式错误的输入，执行 continuation IK 和
 feasibility 检查，然后输出一个不可变 `AcceptedArmTarget`。RH56 command 语义仍是原生六通道 active-actuator
 表示。任何 wrapper 都不能增加第二套 IK、frame remap 或自动硬件发现路径。
+
+XRobo native + DH 目前仅开放[隔离的仿真实验回放](../simulation/SIMULATION.md#xrobo-native--dh-proxy)。
+右 Grip 统一控制机械臂与平行夹爪授权；右 Trigger 控制相对闭合意图。
+不要把此实验的数值可用性当作真实 tracking 或硬件使能，旧 RH56 双 Clutch 保持原义。

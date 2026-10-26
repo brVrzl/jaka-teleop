@@ -149,6 +149,7 @@ class PalmTargetIkState:
         initial_arm_joints_rad: list[float],
         *,
         mjcf_path: str | Path = DEFAULT_MJCF,
+        tcp_body_name: str = PALM_BODY_NAME,
         ik_gain: float = 0.65,
         ik_damping: float = 0.05,
         ik_max_step_rad: float = 0.025,
@@ -212,7 +213,7 @@ class PalmTargetIkState:
         )
         self.arm_qpos_ids = np.asarray(self.model.jnt_qposadr[self.arm_joint_ids], dtype=np.int32)
         self.arm_dof_ids = np.asarray(self.model.jnt_dofadr[self.arm_joint_ids], dtype=np.int32)
-        self.palm_body_id = self._required_id(mujoco.mjtObj.mjOBJ_BODY, PALM_BODY_NAME)
+        self.palm_body_id = self._required_id(mujoco.mjtObj.mjOBJ_BODY, tcp_body_name)
 
         self.arm_joints_rad = np.asarray(initial_arm_joints_rad, dtype=np.float64)
         self.initial_palm_position_m = np.zeros(3, dtype=np.float64)

@@ -3,6 +3,54 @@
 这是在当前 `user01` 环境实际执行的记录（部署 2026-10-23，RH56 仿真追加验收 2026-10-26）。离线、计算查询、相机采集与执行器动作分开描述。
 [安装](INSTALLATION.md) · [JAKA 首次连接](../operation/REAL_ROBOT.md) · [右 Touch](../motion_input/RIGHT_TOUCH.md) · [DH/TIO](../operation/DH_TIO.md)
 
+## XRobo 原生输入与 DH 代理仿真（2026-10-26，Thor）
+
+基于 Mac 分支 `57adf0d` 开发；没有重复 RH56 现场验收。通过 `thor` 账户把
+`native-20261026-01` 原始证据复制到当前账户，原文件和私有目录权限未变。
+Mac 私有目录没有直接访问；分析的是 Thor 留存的同轮原始 SDK 回调。
+
+独立解析全量 74,266 帧，跨度 1,037.474 秒；发现 10.204 秒停流、201.732 秒
+重启空档及一次 predictTime 回退。受控动作窗口 9,705 帧，Grip/Trigger 均覆盖
+0–1，B=true 235 帧，右控制器 XYZ 跨度约 0.551/0.420/0.401 m。
+Head status 全部为3，全程 XYZ 跨度约 0.925/0.675/0.973 m；这些变化不能证明
+Head root pose 与 Controller visual world transform 的参考空间已统一。
+重启后恰好 30,328 帧右控制器位置/按钮全零，全部被实验准入拒绝。
+源 sequence/session/recenter 代次、右控制器独立 validity 仍未知，未补默认真值。
+
+已审阅固定版本的
+[QuestTrackingDataSource.cs](https://github.com/XR-Robotics/XRoboToolkit-Unity-Client-Quest/blob/05ad3f081e64c400d8eda34c0efdf711c47f6b3a/Assets/Scripts/Quest/QuestTrackingDataSource.cs)、
+[TrackingData.cs](https://github.com/XR-Robotics/XRoboToolkit-Unity-Client-Quest/blob/05ad3f081e64c400d8eda34c0efdf711c47f6b3a/Assets/Scripts/TrackingData.cs) 和
+[PC Service 转发](https://github.com/XR-Robotics/XRoboToolkit-PC-Service/blob/6386009475369615fa984bca0a6e9902cd81eb2a/RoboticsService/Business/DeviceManage/devicemanagement.cpp)。
+IsConnected/IsPoseValid 没有被当前 Controller JSON 编码；上游已翻转 position Z
+及 quaternion Z/W，Thor 不再转换。PC Service 传递原 JSON，不补齐控制器有效性。
+
+| 实际运行 | 输入性质 | 结果 |
+| --- | --- | --- |
+| 全量输入-only回放 | 原始真实 SDK 回调 | 43,938 帧只满足实验数值条件；30,328 帧全零拒绝；正式硬件授权不可用 |
+| 全零段完整 MuJoCo 回放 | 真实断连负面记录 | 30,328 回调；0次接管、0 accepted、无夹爪命令，全部机械臂关节零位移 |
+| 20秒统一 Clutch 联合回放 | 明确标注的合成数据 | 932 accepted、3次接管；6个 arm 关节均移动，夹爪模拟闭合比例0–0.85、指间距26.2–4.1 mm |
+| 受控动作窗口联合回放 | 真实记录的未验证实验回放 | 704 accepted、2次接管；夹爪模拟比例0–1、指间距26.2–0.2 mm；B stop/断流要求重新接管 |
+| 实体桌面联合可视化 | 同一合成20秒回放 | 1,200次viewer更新；保存16秒桌面视频，UNVERIFIED/DH PROXY标识和关节动作可见 |
+
+DH 是[有尺寸来源的代理几何](../../assets/README.md#dh-pge-50-26-simulation-proxy)，
+不是实物精确碰撞模型；TCP、安装件、惯量分配仍是假设。
+复用同一 ArmClutchMachine/IK/AcceptedArmTarget，删除输入层独立 gripper clutch。
+可信 RTOUCH 短断流重锚保留，夹爪捕获新 Trigger 参考不追赶；XRobo 没有连续性代次，
+不允许自动重锚。反馈故障在新 arm target 前终止联合会话。旧 RH56 双 Clutch 回归保留。
+279项相关测试通过；另补测13种恢复边界中的夹爪保持与重锚行为。
+
+本地证据在 `outputs/xrobo-dh-sim/`，不提交原始记录或生成缓存：
+`independent-analysis.json`、`native-input-gate.json`、`native-20261026-01/`、
+`real-disconnected-complete.{json,events.jsonl,log}`、`real-controls-final.*`、
+`synthetic-unified.*`、`monitor-final.mp4`、`monitor-video-frame.png`、
+`mapped-desktop.png`、`mapped-window*.txt`、`xrandr.txt` 和测试日志。
+实体 seat0 X11 桌面的启用输出、MuJoCo IsViewable/Fullscreen 属性与真实桌面录屏相符；
+此轮没有另做面板光学拍摄或要求操作者确认新模式，不能把桌面证据称为真实 Quest live 验收。
+
+**仍未完成：** 恢复右手柄实际连接后的新采集、共同参考空间、独立有效性/源连续性、
+recenter及重启恢复的现场证据。实时联合输入仍关闭，input-only可用；未执行任何
+JAKA/DH/RH56物理动作，未改真机安全配置，未把SDK缓存当作夹爪实测。
+
 ## RH56 实体显示器仿真验收（2026-10-26）
 
 真实 Quest HTS/Head/CTRL → 原双 Clutch → MuJoCo JAKA/RH56 已实际运行，

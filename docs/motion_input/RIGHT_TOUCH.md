@@ -1,3 +1,7 @@
+> 当前主线为 XRoboToolkit Quest v1.0.1 + PC Service v1.0.0 原生回调，
+> [仿真操作](../simulation/SIMULATION.md#xrobo-native--dh-proxy)支持严格隔离的未验证 replay。
+> 下文 RTOUCH 是保留的备用协议，不是 XRobo UDP 兼容层。
+
 # Quest 右 Touch：输入、发送端与离线遥操作
 
 [旧 CTRL/HTS 路径](QUEST_CONTROLLER_TRANSPORT_HOST.md)仍保持原语义：左手 index 接管机械臂，左 grip 接管 RH56，右手 HTS 骨骼提供姿态。**它不是右 Touch 位姿协议。** 新模式 `right-touch-v1` 只使用右控制器与真实头部位姿，不需要手部骨骼。
@@ -57,9 +61,10 @@ python tools/quest_controller_transport_gate.py --input-mode right-touch-v1 \
   --allowed-sender "$QUEST_IPV4" --duration-sec 30 --required-data-timeout-sec 20
 ```
 
-输出包含 canonical `position_m`、`orientation_xyzw`、`grip`、`trigger`、`gripper_engaged`、`gripper_release_required`、session/sequence、掉包、重排和 stale。原始 UDP 和报告保存在 `logs/quest_transport_gate/`。在限定时间内没有有效右控制器和头部姿态时返回失败，不要求 RH56、HTS 或骨骼。
+输出包含 canonical `position_m`、`orientation_xyzw`、`grip`、`trigger`、session/sequence、掉包、重排和 stale。原始 UDP 和报告保存在 `logs/quest_transport_gate/`。在限定时间内没有有效右控制器和头部姿态时返回失败，不要求 RH56、HTS 或骨骼。
 
-输入预览不报告机械臂接管状态；`gripper_engaged` 仅表示 Trigger 电爪意图通道。该通道仍在失效后要求 Grip 释放再按下，不会因机械臂自动恢复而改变夹爪目标。机械臂状态以 session 的 `arm_clutch_state` 为准。
+输入层只报告 Grip/Trigger 原始事实，不产生独立 gripper engagement。机械臂和平行夹爪
+共同使用 session 的 `arm_clutch_state`；归一化目标和测量反馈在控制层分别记录。
 
 机械臂检查：启动时先释放 Grip 再按下；同一 RTOUCH 连续性代次内短断流先 HOLD，在最后有效样本后的两倍 clutch stale 时间内（当前 300 ms），可信新帧仍明确按住 Grip 且机械臂状态安全时自动重新锚定。恢复首帧相对运动为零，不追赶丢失期间的手柄运动。真机还要求 native STOPPED_READY、新鲜 observation/worker 时间及无错误，不绕过 braking/watchdog。长断流、显式追踪无效、未知按键、源时钟异常、session/recenter、报警或硬停止不能自动恢复。详见[架构](../architecture/SYSTEM_ARCHITECTURE.md)。头部朝向仍只在参考捕获时用于水平参考。
 
@@ -80,9 +85,9 @@ python tools/quest_jaka_mujoco_sim.py replay-6dof PATH_TO_RAW.hts.jsonl \
   --input-mode right-touch-v1 --report logs/right_touch_replay.json
 ```
 
-- **右 Grip**：`>=0.75` 接管，`<=0.55` 暂停；首次、重连、tracking 失效后必须观察释放再按下。重新按下捕获当前控制器与权威机械臂状态，复用原 SE(3) 映射、滤波、continuation IK、可行性检查及 `AcceptedArmTarget`，没有另建 JAKA 运动链路。
-- **右 Trigger**：方向为 `0=开、1=闭` 的闭合比例；5%/95% 端点死区；与 Grip 接管时的 Trigger 值做相对变化；目标变化最大 `1.0/s`。只在 Grip 接管期间更新。每次重新接管不会把当前 Trigger 绝对值立即写给电爪。
-- **夹爪初始化**：主机 input 层没有初始化或写设备行为。`RightTouchInput.seed_gripper_from_measured()` 必须先由已验证的新鲜反馈明确设置；未设置时 `gripper_target_normalized=null`。该字段是命令意图，不是反馈，也不是已执行动作。DH SDK 缓存读数的时效未被验证时不得用来自动播种。
+- **右 Grip**：`>=0.75` 接管，`<=0.55` 暂停；首次、未验证连续性的重连、tracking 失效后必须观察释放再按下。重新按下捕获当前控制器与权威机械臂状态，复用原 SE(3) 映射、滤波、continuation IK、可行性检查及 `AcceptedArmTarget`，没有另建 JAKA 运动链路。
+- **右 Trigger**：方向为 `0=开、1=闭` 的闭合比例；与 Grip 接管时的 Trigger 值做相对变化；目标变化最大 `1.0/s`。只在 Grip 接管期间更新。每次重新接管不会把当前 Trigger 绝对值立即写给电爪。
+- **夹爪初始化**：输入层不初始化或写设备。共享 `ParallelGripperControl` 只从有效且新鲜的观察播种，接管时捕获相对 Trigger 参考且不发送新命令。DH SDK 缓存读数不能当作新鲜实测。
 - **暂停／断流／退出**：Grip 松开暂停机械臂并保持夹爪意图；丢追踪、session 改变、重排、旧 session 不会自动松爪。Ctrl-C 停止主机输入／仿真。现场急停依真实机械臂流程；发送端退出不能被当作替代急停。
 
 ## RTOUCH v1 线协议

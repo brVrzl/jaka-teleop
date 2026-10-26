@@ -543,34 +543,14 @@ def test_right_touch_reuses_arm_pipeline_without_bones_and_reclutches(tmp_path):
     assert session.report("synthetic_right_touch")["accepted_target_count"] > 0
 
 
-def test_right_touch_order_restart_and_gripper_hold():
+def test_right_touch_exposes_raw_trigger_without_separate_authorization():
     from motion_input.right_touch import RightTouchInput
     source = RightTouchInput(stale_after_s=.15)
-    source.seed_gripper_from_measured(.6)
-    source.ingest(_touch(1, 20_000_000))
-    source.ingest(_touch(2, 40_000_000, grip=1, trigger=.2))
-    source.ingest(_touch(3, 60_000_000, grip=1, trigger=.8))
-    assert source.gripper_engaged
-    assert .6 < source.gripper_target_normalized <= .621
-    previous = source.gripper_target_normalized
-    source.ingest(_touch(4, 80_000_000, grip=0, trigger=0))
-    assert not source.gripper_engaged
-    assert source.gripper_target_normalized == previous
+    source.ingest(_touch(1, 20_000_000, grip=0, trigger=.8))
+    assert source.trigger_sample.value == .8
+    assert source.trigger_sample.valid
     source.poll(300_000_000)
-    assert source.gripper_target_normalized == previous
-    source.ingest(_touch(1, 320_000_000, grip=1, trigger=0, session_id=2))
-    assert not source.gripper_engaged
-    assert source.gripper_target_normalized == previous
-    source.ingest(_touch(2, 340_000_000, grip=0, session_id=2))
-    source.ingest(_touch(3, 360_000_000, grip=1, trigger=0, session_id=2))
-    assert source.gripper_engaged
-    assert source.gripper_target_normalized == previous
-    assert not source.ingest(_touch(3, 380_000_000, grip=0, session_id=2))
-    assert source.gripper_engaged  # Duplicate cannot change buttons or refresh age.
-    assert not source.ingest(_touch(100, 400_000_000, session_id=1))
-    source.ingest(_touch(4, 420_000_000, grip=1, tracked=False, session_id=2))
-    assert not source.gripper_engaged
-    assert source.gripper_target_normalized == previous
+    assert not source.trigger_sample.valid
 
 
 def test_right_touch_strict_pose_and_gate_without_hand_data():
@@ -593,7 +573,7 @@ def test_right_touch_strict_pose_and_gate_without_hand_data():
     source.ingest(_touch(1, 1))
     source.ingest(_touch(2, 20_000_000, grip=1))
     source.ingest(_touch(3, 40_000_000, grip=1, trigger=1))
-    assert source.gripper_target_normalized is None  # Never invent startup feedback.
+    assert source.trigger_sample.value == 1.0
 
 
 def test_right_touch_clock_fault_rotation_basis_and_no_automatic_recovery():
@@ -610,12 +590,11 @@ def test_right_touch_clock_fault_rotation_basis_and_no_automatic_recovery():
     reversed_clock = _touch(3, 60_000_000, grip=1)
     reversed_clock = replace(reversed_clock, payload=reversed_clock.payload.replace(b"t_ns=60000000", b"t_ns=30000000"))
     source.ingest(reversed_clock)
-    assert not source.gripper_engaged
+    assert not source.arm_sample.valid
     source.ingest(_touch(4, 80_000_000, grip=1))
-    assert not source.gripper_engaged
     source.ingest(_touch(5, 100_000_000, grip=0))
     source.ingest(_touch(6, 120_000_000, grip=1))
-    assert source.gripper_engaged
+    assert source.arm_sample.valid
 
 
 @pytest.mark.parametrize("interruption", [
@@ -624,9 +603,19 @@ def test_right_touch_clock_fault_rotation_basis_and_no_automatic_recovery():
     "ambiguous_grip", "expired_hold",
 ])
 def test_right_touch_recovery_boundaries_and_gripper_hold(tmp_path, interruption):
+    from teleoperation.parallel_gripper import ParallelGripperControl, GripperObservation
+    class Output:
+        commands = []
+        def observe(self, now):
+            return GripperObservation(.6, now, now, True, source='test')
+        def submit(self, command):
+            self.commands.append(command)
+        def hold(self):
+            pass
     session = _session(tmp_path)
+    gripper = Output()
+    session.parallel_gripper = ParallelGripperControl(gripper)
     router = LiveQuestControllerRouter(stale_after_s=.15, input_mode="right-touch-v1")
-    router.touch.seed_gripper_from_measured(.6)
     for seq, grip in ((1, 0), (2, 1)):
         now = seq * 20_000_000
         router.ingest(_touch(seq, now, grip=grip, trigger=.2), session)
@@ -674,7 +663,7 @@ def test_right_touch_recovery_boundaries_and_gripper_hold(tmp_path, interruption
     else:
         assert result.accepted_target is None
         assert session.reference_generation == 1
-    assert router.touch.gripper_target_normalized == .6
+    assert not gripper.commands
 
 
 def test_replay_event_log_retains_ticks_beyond_recent_history(tmp_path: Path) -> None:
@@ -702,3 +691,109 @@ def test_replay_event_log_retains_ticks_beyond_recent_history(tmp_path: Path) ->
     assert events[0]["control_monotonic_ns"] == 1_000_000_000
     assert events[-1]["control_monotonic_ns"] > events[0]["control_monotonic_ns"]
     assert not any(event["accepted"] for event in events)
+
+
+def test_parallel_gripper_uses_arm_clutch_and_simulated_feedback():
+    from tools.quest_jaka_mujoco_sim import _make_smooth_session, _step_smooth_simulation
+    plant, session = _make_smooth_session(ReplayConfig.load('configs/sim/quest_jaka_dh_proxy.yaml'))
+    router = LiveQuestControllerRouter(stale_after_s=.15,input_mode='right-touch-v1')
+    def tick(seq, grip, trigger):
+        now = seq*20_000_000
+        router.ingest(_touch(seq,now,grip=grip,trigger=trigger),session)
+        result = session.control_tick(now)
+        for _ in range(10):
+            _step_smooth_simulation(plant,session,.002)
+        return result
+    tick(1,0,1)
+    tick(2,1,1)
+    assert session.parallel_gripper.command is None  # capture does not close
+    tick(3,0,0)
+    tick(4,1,0)
+    for seq in range(5,55):tick(seq,1,.8)
+    command = session.parallel_gripper.command
+    assert command.closed_fraction == pytest.approx(.8)
+    assert session.parallel_gripper.observe(1_080_000_000).closed_fraction == pytest.approx(.8,abs=.02)
+    joint = plant.data.qpos[session.parallel_gripper.output.qpos].copy()
+    assert joint == pytest.approx([-.0104,-.0104],abs=.0003)
+    for seq in range(55,65):tick(seq,0,0)
+    assert session.parallel_gripper.command == command
+    tick(65,1,1)
+    assert session.parallel_gripper.command == command
+    assert session.accepted_targets > 0
+    assert len(plant.hand_actuator_ids) == 0
+
+
+def test_parallel_gripper_contract_substitution_and_feedback_fault():
+    from teleoperation.parallel_gripper import ParallelGripperControl, GripperObservation
+    class Output:
+        def __init__(self, units, inverted):
+            self.units,self.inverted = units,inverted
+            self.raw = units*.5
+            self.commands = []
+            self.fault = None
+        def observe(self,now):
+            f = self.raw/self.units
+            return GripperObservation(1-f if self.inverted else f,now,now,True,self.fault,'test')
+        def submit(self,c):
+            self.commands.append(c.closed_fraction)
+            self.raw = self.units*(1-c.closed_fraction if self.inverted else c.closed_fraction)
+        def hold(self):pass
+    outputs = [Output(1000,False),Output(255,True)]
+    for out in outputs:
+        control = ParallelGripperControl(out,maximum_rate=1.)
+        control.observe(0)
+        control.update(authorized=True,capture=True,trigger=.2,source_ns=0,now_ns=0)
+        control.update(authorized=True,capture=False,trigger=.8,source_ns=20_000_000,now_ns=20_000_000)
+        assert out.commands == pytest.approx([.52])
+        control.update(authorized=False,capture=False,trigger=0.,source_ns=30_000_000,now_ns=30_000_000)
+        assert len(out.commands)==1
+        out.fault='unconfirmed_device_failure'
+        with pytest.raises(RuntimeError):control.observe(40_000_000)
+
+
+def test_xrobo_experiment_requires_manual_regrip_and_rejects_hardware_output(tmp_path):
+    import json
+    from quest_jaka_sim.xrobo_input import XRoboSimulationRouter
+    session = _session(tmp_path)
+    router = XRoboSimulationRouter()
+    def frame(seq, now, grip, x=.2):
+        raw=json.dumps({'functionName':'Tracking','value':json.dumps({
+            'timeStampNs':1_000_000_000+now,'predictTime':now/1000,
+            'appState':{'focus':True},'Head':{'pose':'0,1,0,0,0,0,1','status':3},
+            'Controller':{'right':{'pose':f'{x},.3,.1,0,0,0,1','grip':grip,'trigger':.7}}})})
+        return ReceivedHtsDatagram(raw.encode(),'native-sdk-callback',0,now,0)
+    router.ingest(frame(1,20_000_000,0),session);session.control_tick(20_000_000)
+    router.ingest(frame(2,40_000_000,1),session);session.control_tick(40_000_000)
+    assert session.arm_clutch.state.value=='engaged'
+    generation=session.reference_generation
+    router.poll(210_000_000,session);session.control_tick(210_000_000)
+    router.ingest(frame(3,220_000_000,1,.21),session);session.control_tick(220_000_000)
+    assert session.arm_clutch.state.value=='tracking_fault'
+    assert session.reference_generation==generation
+    router.ingest(frame(4,240_000_000,0),session);session.control_tick(240_000_000)
+    router.ingest(frame(5,260_000_000,1),session);session.control_tick(260_000_000)
+    assert session.reference_generation==generation+1
+    assert session.arm_mapper.last_telemetry.robot_delta.position_m==(0.,0.,0.)
+    session.arm_output=RecordingArmTargetAdapter()
+    with pytest.raises(ValueError,match='restricted to the MuJoCo'):
+        router.ingest(frame(6,280_000_000,1),session)
+
+
+def test_gripper_fault_stops_session_before_accepting_another_arm_target():
+    from dataclasses import replace as changed
+    from tools.quest_jaka_mujoco_sim import _make_smooth_session
+    plant, session = _make_smooth_session(ReplayConfig.load('configs/sim/quest_jaka_dh_proxy.yaml'))
+    router = LiveQuestControllerRouter(stale_after_s=.15,input_mode='right-touch-v1')
+    for seq,grip in ((1,0),(2,1)):
+        now=seq*20_000_000
+        router.ingest(_touch(seq,now,grip=grip),session)
+        session.control_tick(now)
+    count=session.accepted_targets
+    output=session.parallel_gripper.output
+    observation=output.observe(60_000_000)
+    output.observe=lambda now: changed(observation,fault='device_fault')
+    router.ingest(_touch(3,60_000_000,grip=1,x=.01,trigger=1),session)
+    with pytest.raises(RuntimeError,match='feedback unavailable'):
+        session.control_tick(60_000_000)
+    assert session.accepted_targets==count
+    assert session.parallel_gripper.command is None
