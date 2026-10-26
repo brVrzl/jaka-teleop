@@ -75,6 +75,8 @@ Live 与 replay 的 `.events.jsonl` 按控制 tick 持续写入，包含实际�
 
 ## XRobo native + DH proxy
 
+原生字段和真实采集限制见[XRobo输入契约](../motion_input/XROBO_NATIVE.md)。
+
 这是**未验证的离线实验**，不授予真机控制权，也不代表 XRobo 实时联合验收通过。
 输入为 PC Service native SDK 的 JSON 回调记录，不是 UDP9000/RTOUCH。
 使用已有脚本选择 `--profile dh-proxy --input-mode xrobo-native-experimental`；

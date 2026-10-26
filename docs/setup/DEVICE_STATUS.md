@@ -5,7 +5,7 @@
 
 ## XRobo 原生输入与 DH 代理仿真（2026-10-26，Thor）
 
-基于 Mac 分支 `57adf0d` 开发；没有重复 RH56 现场验收。通过 `thor` 账户把
+基于 Mac 分支 `57adf0d` 开发，并已合入最新 `20b872e`；没有重复 RH56 现场验收。通过 `thor` 账户把
 `native-20261026-01` 原始证据复制到当前账户，原文件和私有目录权限未变。
 Mac 私有目录没有直接访问；分析的是 Thor 留存的同轮原始 SDK 回调。
 
@@ -47,8 +47,21 @@ DH 是[有尺寸来源的代理几何](../../assets/README.md#dh-pge-50-26-simul
 实体 seat0 X11 桌面的启用输出、MuJoCo IsViewable/Fullscreen 属性与真实桌面录屏相符；
 此轮没有另做面板光学拍摄或要求操作者确认新模式，不能把桌面证据称为真实 Quest live 验收。
 
-**仍未完成：** 恢复右手柄实际连接后的新采集、共同参考空间、独立有效性/源连续性、
-recenter及重启恢复的现场证据。实时联合输入仍关闭，input-only可用；未执行任何
+最新补测同样通过授权账户复制 `native-20261026-02`，独立确认31,142回调、
+710.639秒跨度、12.299秒停流、38.177秒重启间隔、一次elapsed回退；重启后5,498帧，
+全量零XYZ帧为0，Grip/Trigger均0–1，B按下387帧。完整联合回放得到704个accepted
+target、8次接管，六关节实际跨度约0.193/0.042/0.368/0.500/0.588/0.832 rad；
+夹爪实际模拟闭合比例0–0.9663，代理指间距26.2–1.076 mm。该结果仍是记录回放。
+受控动作窗口另在实体桌面完成可视化，保存45秒录屏 `native-02-monitor.mp4`、
+`native-02-desktop.png`、`native-02-window.txt`、`native-02-xrandr.txt`；
+完整事件为 `native-02-full.events.jsonl`，独立分析与关节指标为
+`native-02-independent.json` / `native-02-joint-metrics.json`。合入后相关38项复测通过。
+报告内有界诊断计数不是全量帧/tick总数，应以local_callback_count及完整事件日志为准。
+
+**仍未完成：** 动态参考空间验证、独立有效性/源连续性及recenter代次。
+Mac 已完成连接恢复和重启补测，不再要求重复配对、取电池或重启；
+源码共同Unity world及上游坐标转换已在[原生契约](../motion_input/XROBO_NATIVE.md)中明确，
+但静止旧pose不能证明持续tracking。实时联合输入仍关闭，input-only可用；未执行任何
 JAKA/DH/RH56物理动作，未改真机安全配置，未把SDK缓存当作夹爪实测。
 
 ## RH56 实体显示器仿真验收（2026-10-26）
