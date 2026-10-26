@@ -2,6 +2,10 @@
 
 ## 当前接力：阶段二发送端（2026-10-26）
 
+**本轮最新取舍：操作者已明确接受“成熟应用原生协议只读验收”，缺失字段如实列出，
+不要求把本轮原生流算作完整 RTOUCH 通过。现优先使用已装 XRoboToolkit-Quest，暂停扩展 HTS UI。
+下文 RTOUCH 构建/接入步骤保留为候选后续流程，不代表该协议已实机通过。**
+
 旧 HTS/CTRL → JAKA/RH56 实体显示器仿真已经由操作者确认通过，见
 [实际证据](DEVICE_STATUS.md#rh56-实体显示器仿真验收2026-10-26)。
 集成分支为 `work/jaka-teleop-sim-integration`。文档入口优化、Thor onboarding、
@@ -48,20 +52,12 @@ PYTHONPATH=src ~/.venvs/embodied-hand-lab/bin/python tools/quest_controller_tran
 
 有效真实发送端确认后再接入统一 Grip 会话及 DH 仿真；阶段二联合仿真通过前不进入阶段三。
 
-### Mac 本轮执行状态：环境已恢复，许可待激活（2026-10-26）
+### Mac 本轮执行结果：XRobo 原生基础输入已证实，重连待补（2026-10-26）
 
-Mac 从集成基线 `0a14ad3` 建立独立 worktree，工作分支
-`work/mac-quest-righttouch-20261026`，保留原 `work/thor-onboarding-quest-dh`
-工作区与发送端旧 checkout 的未跟踪文件。固定发送端 `5b8eac7` 已在独立
-checkout 成功应用现有 `right-touch-v1.patch`；本轮尚未修改补丁或任何 Thor 控制代码。
-
-ADB 实测 Quest 3 `2G97C5ZJ2901FK` 已授权；Android 14 / API 34，
-`ro.build.branch=releases-oculus-14.0-v207`，`ro.hzos.build.display_name=2.7.0`，
-SystemUX `207.0.0.191.1234`，build `52433670032200520`。
-Quest `10.24.0.3/16` ping Thor `10.24.1.68` 两包成功，Thor Wi-Fi 地址也已通过 SSH 核对。
-启动时 mixedprobe 仍运行旧 HTS 流；已停止发送并重启回菜单。
-实际 APK 和操作者展开菜单确认：旧 mixedprobe 只有 Left/Right/Both Hand，
-没有 Right Touch；两个旧 HTS APK 均无 RTOUCH 编码标识。所有旧包和应用数据保留。
+ADB Quest 3 `2G97C5ZJ2901FK` 已授权；Android 14 / API 34，Horizon 分支
+`releases-oculus-14.0-v207`，属性显示名 `2.7.0`，SystemUX `207.0.0.191.1234`，
+firmware `52433670032200520`。Quest `10.24.0.3/16` 实测可达 Thor `10.24.1.68`，
+Thor Wi-Fi 地址已通过 SSH 核对。原 RH56/JAKA 仿真没有重复运行，未执行任何实物动作。
 
 | 实装包 | versionName / code |
 | --- | --- |
@@ -69,33 +65,80 @@ Quest `10.24.0.3/16` ping Thor `10.24.1.68` 两包成功，Thor Wi-Fi 地址也�
 | `com.brvrzl.handtrackingstreamer.mixedprobe` | `1.1.0` / `7` |
 | `com.xrobotoolkit.client.quest` | `1.0.1` / `1` |
 | `com.DefaultCompany.vr_controller` | `1.0` / `11` |
-| `com.brvrzl.handtrackingstreamer.righttouch` | 尚未安装 |
+| `com.brvrzl.handtrackingstreamer.righttouch` | `1.1.0-righttouch-v1` / `7`，本轮普通安装后同包更新 |
 
-Unity Hub / Editor 起初已被移除，仅剩安装包及旧授权文件。本轮从官方来源恢复
-Hub `3.22.4`、Editor `6000.0.65f1` (`a18e2220bd50`) 和 Android Build Support。
-Editor 在 `/Applications/Unity/Unity.app/Contents/MacOS/Unity`；NDK r27c
-`27.2.12479018`、OpenJDK `17.0.9+9` 位于该 Editor 的 AndroidPlayer 目录，
-SDK 链接到 `~/Library/Android/sdk`，含 API 32/36、Build Tools 36.0.0 和 command-line tools 16.0。
-Editor 安装包与官方公布校验值一致，Apple 分发签名有效；NDK 镜像校验通过，Clang 可执行。
-未升级项目或包版本，未复用旧 Unity Library。
+旧 mixedprobe 实际菜单仅 Left/Right/Both Hand，没有 Right Touch；两个旧 HTS APK
+均无 RTOUCH 编码标识。所有旧应用和数据保留。
 
-**EditMode 首次实际运行在编译前退出，退出码 198：**
-`Access token is unavailable`、`Found 0 entitlement groups`、
-`No valid Unity Editor license found. Please activate your license.`
-需要操作者在 Unity Hub 登录并激活可用许可，再重跑测试和 Android build。
-目前没有测试 XML、Android build 成功结果、新 APK 或真实 RTOUCH 收包；不能据此声称通过。
+#### 当前采用：XRoboToolkit-Quest 原生只读输入
 
-本轮证据目录（不进 Git）：
-`/Users/wujunqi/Documents/Codex/2026-10-26/mac-brvrzl-jaka-teleop-quest-3-2/outputs/quest-righttouch-20261026/`，
-包括 `editmode-01.log`、`environment-status.json`、包信息、旧菜单截图、安装与下载日志。
-Thor 可用 SSH 账户仍为 `thor`，`thor-user01` 登录被拒；未修改 user01 私有工作区。
-同基线 input-only gate 的只读源码快照已放到
-`~/.cache/jaka-teleop-righttouch-20261026`，`--help` 启动检查通过，尚未启动监听。
-许可及构建通过后才启动 gate，确认 UDP 9000 空闲，并重新核对 Quest/Thor 地址。
+复用既有 Quest v1.0.1 及 Thor PC Service v1.0.0 / native SDK，未升级应用或新造协议。
+Quest 用右 Touch Trigger 操作菜单，连接 `10.24.1.68`，开启 Head、Controller、Send，Hand 关闭。
+Thor 使用已有 `tools/xrobo_input_observer.py`；只调用 SDK 初始化、接收 JSON 回调和释放，
+没有设备控制或机器人目标。一次采集保存 74,266 条 Tracking 回调，首末跨度 1,037.474 秒，
+连续收到数据时约 90 Hz。它们是 **SDK 应用 JSON 回调，不是原始 TCP datagram**。
 
-MQDH 接近传感器原为 Enabled，本轮临时设为 Disabled for 2 hours，便于截图；
-结束时或正常使用前应在 Device Actions → Proximity Sensor → Enable 恢复。
-Cast 窗口当前无有效画面，实际截图使用 ADB screencap；不把旧 HTS 画面当作新 RTOUCH 证明。
+受控动作窗口 9,705 帧 / 107.884 秒：右 Grip、Trigger 均覆盖 0–1，
+分别有 743 帧“只按 Grip”、475 帧“只按 Trigger”（另一输入 <0.1）；
+B 键 true 235 帧、false 9,470 帧。位置三个分量和旋转均明显变化，
+quaternion norm 范围 0.999999917–1.000000125。
+Head pose 随操作者头部运动变化；关闭 Send 产生 10.204 秒实际回调空档，
+观察器 stale 时 `current_frame=null`，恢复 Send 后重新收到新回调。
+
+**失焦/重启恢复尚未通过右 Touch 验收。** 后台后重开时 Quest 进程从 9864 换为 17704，
+重新启用 Send 后回调恢复约 90 Hz，但新进程阶段 30,328 帧右控制器位置/扳机全零。
+操作者随后明确报告右手柄 `not connected`。因此不能把持续回调当作控制器仍有效，
+也不能声称右 Touch 已成功自动重连。右手柄连接恢复后需再做这项短测试。
+
+当前原生协议缺右控制器独立 `connected/active/tracked`、源 session/seq/recenter generation。
+`timeStampNs` 是源 UTC，`predictTime` 是源应用 elapsed 微秒；重启时后者下降可见，
+不能把本地回调序号或 SDK `TestDevice` 标签冒充源序号/session/设备序列号。
+遮挡、recenter 已由操作者执行，但缺少这些标志，**尚不能认证对应 tracking/连续性安全语义**；
+重复、过期、无效源数据拒绝及统一参考空间也尚未通过。Head 使用 root pose，Controller
+使用 visual world transform；主机不得再次翻转上游已转换的 Z，也不能直接包装为有效 RTOUCH。
+
+本次 Thor 原始回调、状态和事件：
+`~/.cache/embodied-hand-lab-xrobo/native-20261026-01/` 下的
+`raw.jsonl`、`status.log`、`events.jsonl`、`controls-motion-summary.json`、
+`head-continuity-summary.json`、`final-summary.json`、`real-samples.json`。
+Mac 已保存完整副本到本轮证据目录 `xrobo-native/`。采集器按 1,200 秒上限自然退出，
+本轮 PC Service 已停止，Quest XRobo 已 force-stop，未清除数据。
+
+#### 已保留的 RTOUCH 候选构建
+
+独立 worktree 基线 `0a14ad3`，分支 `work/mac-quest-righttouch-20261026`；
+固定发送端 `5b8eac7` 在独立 checkout 应用现有补丁，保留原工作区/旧 checkout。
+本轮恢复 Unity Hub 3.22.4、Editor 6000.0.65f1 (`a18e2220bd50`)、Android Build Support、
+NDK r27c 27.2.12479018、OpenJDK 17.0.9+9；SDK 含 API32/36、Build Tools36.0.0、
+command-line tools16.0 和 CMake3.22.1。Editor 位于
+`/Applications/Unity/Unity.app/Contents/MacOS/Unity`，未升级项目/包，未复用旧 Library。
+
+操作者登录后 Unity Personal 授权正常。EditMode 两次 **21/21 通过，退出码0**；
+首次无许可退出198、构建缺 CMake、Java 不接受 `HTTPS_PROXY=socks5h://...` 的完整日志均保留。
+补齐 CMake 并为构建进程使用已有 HTTP 代理后，`android-build-03.log` 构建成功。
+真机发现手部 UI 的 `FromOVRHandDataSource.UpdateDataPoses` 空引用：
+项目编译定义为 `ISDK_OPENXR_HAND`，运行配置却被初次导入置为 OVR。
+补丁仅新增5行构建配置，在 BuildApk 中明确设置并保存 `OVRHandSkeletonVersion.OpenXR`。
+`editmode-03.xml` 再次21/21通过，`android-build-04.log` 构建成功，退出码0；
+同包更新后日志确认 OpenXR，手部射线恢复，实际菜单已看到 Right Touch (RTOUCH v1)。
+
+最终候选 `right_touch_v1.apk`：68,881,517 bytes，独立包及版本如表，min/target SDK32，
+APK v2 签名验证通过。SHA256
+`8afef4822d01f71704bd206f3c5a180df62b93cfa2bff71055d03c8e284d58c6`。
+**HTS IP 输入仍不能完成，默认广播地址使 RTOUCH 无法开始，未继续扩展此 UI。**
+Thor `gate-01`、`gate-02` 均因无真实有效 RTOUCH 超时 FAIL；没有 RTOUCH 样例或协议通过结论。
+输入-only gate 快照和日志在 `~/.cache/jaka-teleop-righttouch-20261026`。
+
+本轮 Mac 证据（全部不进 Git）：
+`/Users/wujunqi/Documents/Codex/2026-10-26/mac-brvrzl-jaka-teleop-quest-3-2/outputs/quest-righttouch-20261026/`。
+包括 APK 身份/manifest/签名、EditMode/Android完整日志、实际菜单与 XRobo 运行截图、
+原生回调副本及摘要。Thor `thor` SSH 可用，`thor-user01` 登录被拒，未改动其私有工作区。
+未修改 RightTouchInput、ArmClutchMachine、SmoothQuestJakaSession、IK 或 DH 输出链。
+后续 Thor 先恢复右 Touch 连接并补重启恢复检查，再决定原生输入的真实 validity/连续性和
+统一参考空间如何满足现有安全边界；Grip 共同 Clutch / Trigger 连续夹爪语义仍由 Thor 控制层实现。
+
+MQDH 接近传感器原为 Enabled，本轮约15:02曾临时 Disabled for 2 hours；
+没有把该设置等同于摘下持续追踪通过，正常使用前在 Device Actions 核对并 Enable。
 
 ## 历史收工状态（2026-10-23）
 

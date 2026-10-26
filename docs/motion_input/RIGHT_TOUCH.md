@@ -8,7 +8,7 @@
 
 现场已收到旧 CTRL + HTS wrist/landmarks/head。20 秒记录的 501 条 CTRL 全部 `connected=0,active=0,tracked=0,index=0,grip=0`，没有 RTOUCH；只能证明旧 UDP 传输到达，未证明控制器追踪或按键可用。原始证据在本机 `outputs/thor-onboarding/quest-input-second-raw.jsonl`（不进 Git）。
 
-主机 parser、时序／跟踪失效、Grip 接管／重新捕获和共用 MuJoCo target 管线已做离线测试及合成输入 replay。发送端采用对上述固定 commit 的[最小扩展补丁与构建步骤](../../quest_sender/README.md)，复用已有 Unity 工程、Meta SDK、IP/端口数字键盘、保存配置和启停菜单，**没有另造一套应用**。补丁已做源文件应用检查；Thor 没有 Unity Editor，**patched APK 尚未编译、安装或经真实 Quest 验收**。
+主机 parser、时序／跟踪失效、Grip 接管／重新捕获和共用 MuJoCo target 管线已做离线测试及合成输入 replay。发送端采用对上述固定 commit 的[最小扩展补丁与构建步骤](../../quest_sender/README.md)，复用已有 Unity 工程、Meta SDK、IP/端口数字键盘、保存配置和启停菜单，**没有另造一套应用**。Mac 已通过 21 项 EditMode 测试并完成 Android build、独立包普通安装；**HTS IP 输入仍阻塞真实 RTOUCH 流；操作者现优先选择 XRobo 原生只读验收，其缺失字段不得直接包装为 RTOUCH**，见[当前接力记录](../setup/MAC_QUEST_HANDOFF.md)。
 
 DH 工具身份、TCP、负载、碰撞几何及可确认时效的夹爪反馈未完成实物核验，`tools/quest_jaka_hardware.py` 会在任何硬件 I/O 前拒绝 `right-touch-v1`。手写 `verified` 布尔不能绕过这个边界。仿真使用所选 YAML 的模型；默认 RH56 模型不代表 DH 适配通过。右 Touch 不允许写入旧 RH56 的 12-D episode。
 
@@ -26,7 +26,7 @@ adb shell dumpsys package com.brvrzl.handtrackingstreamer.mixedprobe
 adb shell pm path com.brvrzl.handtrackingstreamer.mixedprobe
 ```
 
-记录现场 `versionName`、`versionCode`、包名、安装来源，再与源码配置比对。`unauthorized` 需要头显内授权；列表为空先检查开发者模式、数据线及 USB 权限。当前尚未通过 adb 获取现场应用身份。
+记录现场 `versionName`、`versionCode`、包名、安装来源，再与源码配置比对。`unauthorized` 需要头显内授权；列表为空先检查开发者模式、数据线及 USB 权限。旧包及本轮新包身份已通过 ADB 核实，详见[当前接力记录](../setup/MAC_QUEST_HANDOFF.md)。
 
 补丁构建使用独立包名 `com.brvrzl.handtrackingstreamer.righttouch`，版本 `1.1.0-righttouch-v1`，保留原应用：
 
@@ -45,7 +45,7 @@ adb logcat -s Unity
 4. 观察右侧 HUD/`adb logcat` 的 RTOUCH TX、右手／头部 tracking、Grip/Trigger。**TX 计数不证明主机收到**；还要核对主机 `valid_pose_packets`。
 5. 右 **B** 停止并返回菜单；原左 Menu 仍能停止。改地址时先停止、填写后重新开始。网络重连、焦点变化或 tracking origin 变化都会更换 session，主机要求重新释放 Grip。
 
-菜单路径由源码核对，具体头显交互仍待 APK 构建与现场验收。没有控制器射线时先使用原工程已有菜单交互完成配置；不要修改 tracking 有效性来绕过问题。UDP 无 ACK，连接验证以主机接收为准；故障检查同网、路由、防火墙和 AP 客户端隔离。
+菜单扩展已构建并安装，实际头显交互与真实输入仍待现场验收。没有控制器射线时先使用原工程已有菜单交互完成配置；不要修改 tracking 有效性来绕过问题。UDP 无 ACK，连接验证以主机接收为准；故障检查同网、路由、防火墙和 AP 客户端隔离。
 
 ## 先只看真实输入
 

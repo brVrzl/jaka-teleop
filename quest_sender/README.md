@@ -1,9 +1,10 @@
 # Right Touch extension for the existing Quest sender
 
-Current priority (2026-10-26): build and validate the real Right Touch sender
-below. The installed legacy HTS menu has only Left/Right/Both Hand; XRobo
-observations do not supply the complete RTOUCH validity/session contract. See
-the current phase-two [Mac handoff](../docs/setup/MAC_QUEST_HANDOFF.md).
+Current operator priority (2026-10-26): use the installed XRoboToolkit-Quest
+native protocol for read-only Touch acceptance, reporting its missing fields
+without treating it as RTOUCH. The patched HTS candidate below has been built
+and installed, but its IP-entry UI still blocks streaming. Further HTS UI work
+is deferred. See the current [Mac handoff](../docs/setup/MAC_QUEST_HANDOFF.md).
 
 This directory contains a focused patch for
 [`brVrzl/hand-tracking-streamer`](https://github.com/brVrzl/hand-tracking-streamer/tree/5b8eac7e30ce12481b89b123099693bc658bc578),
@@ -26,8 +27,8 @@ main APK as if it contained this extension.
 ## Rebuild on a Unity build computer
 
 The pinned source requires **Unity 6000.0.65f1**, Meta All-in-One SDK **72.0.0**,
-OpenXR **1.16.1**, Input System **1.17.0**, Android Build Support, SDK/NDK and
-OpenJDK. Package versions come from that project's manifest/lock, not this
+OpenXR **1.16.1**, Input System **1.17.0**, Android Build Support, SDK/NDK,
+OpenJDK and Android SDK CMake **3.22.1**. Package versions come from that project's manifest/lock, not this
 host's Python environment. Complete Unity's own Editor activation requirements.
 
 In a fresh checkout (keep any existing sender checkout and its changes):
@@ -58,6 +59,12 @@ mkdir -p "$SENDER_PROJECT/build"
   -logFile "$SENDER_PROJECT/build/build.log"
 ```
 
+The build also pins `OVRHandSkeletonVersion.OpenXR` to match the existing
+`ISDK_OPENXR_HAND` interactors. Fresh import had reset this setting to OVR,
+causing real Quest `FromOVRHandDataSource.UpdateDataPoses` exceptions and
+preventing hand-menu clicks. This is a build configuration fix, not a package
+upgrade or a change to tracking-validity logic.
+
 The patch assigns a distinct package
 `com.brvrzl.handtrackingstreamer.righttouch` and version
 `1.1.0-righttouch-v1`, preserving the installed legacy application's package.
@@ -70,8 +77,11 @@ menu settings, input preview and simulation.
 The patch was applied and reverse-checked against the seven affected source
 files downloaded from the pinned commit. Host protocol/safety tests and a
 121-frame synthetic MuJoCo replay passed; they do not validate the Android app.
-Thor currently has no Unity Editor. **The patched sender has not been compiled,
-installed, or tested on Quest.** Preserve actual EditMode/build logs and verify
+The Mac run on 2026-10-26 passed **21 EditMode tests**, built the Android APK
+and installed the distinct package using ordinary ADB. See the [current Mac
+handoff](../docs/setup/MAC_QUEST_HANDOFF.md) for the APK identity and full log
+locations. **The hand-menu skeleton mismatch was fixed and the mode is visible on Quest;
+IP entry still blocks streaming. Real RTOUCH tracking acceptance remains pending.** Preserve actual EditMode/build logs and verify
 head/controller tracking, focus/pause/recenter session changes, UI start/stop,
 IP/port edits, packet receipt and app identity before claiming end-to-end use.
 
@@ -82,3 +92,10 @@ anchor in the same Unity world. The host performs the sole Unity-to-OpenXR
 basis conversion. Focus/pause and XR tracking-origin events change the session;
 network restart also starts a new session. Neither reconnect nor holding Grip
 across interruption authorizes host motion.
+
+On the Mac build, install the required CMake through the existing Android SDK:
+`JAVA_HOME=/path/to/AndroidPlayer/OpenJDK sdkmanager --install "cmake;3.22.1"`.
+If Java SDK manager reports `unknown protocol: socks5h`, set `HTTP_PROXY` and
+`HTTPS_PROXY` to the existing HTTP proxy URL for that build process; it cannot
+parse a SOCKS URL in those variables. Do not change the Unity package versions
+to work around missing local tools or proxy configuration.

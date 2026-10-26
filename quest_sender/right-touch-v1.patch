@@ -179,7 +179,7 @@
              {
 --- a/hand_tracking_streamer/Assets/Editor/CommandLineAndroidBuild.cs
 +++ b/hand_tracking_streamer/Assets/Editor/CommandLineAndroidBuild.cs
-@@ -6,12 +6,15 @@
+@@ -6,12 +6,20 @@
  public static class CommandLineAndroidBuild
  {
      private const string OutputArg = "-apkOutput";
@@ -193,6 +193,11 @@
 +        PlayerSettings.SetApplicationIdentifier(UnityEditor.Build.NamedBuildTarget.Android,
 +            "com.brvrzl.handtrackingstreamer.righttouch");
 +        PlayerSettings.bundleVersion = "1.1.0-righttouch-v1";
++        // Match the pinned project's ISDK_OPENXR_HAND menu interactors.
++        var runtimeSettings = OVRRuntimeSettings.GetRuntimeSettings();
++        runtimeSettings.HandSkeletonVersion = OVRHandSkeletonVersion.OpenXR;
++        OVRRuntimeSettings.CommitRuntimeSettings(runtimeSettings);
++        AssetDatabase.SaveAssets();
 +        string outputPath = GetArgumentValue(OutputArg) ?? "build/apk/right_touch_v1.apk";
          string[] scenes = EditorBuildSettings.scenes
              .Where(scene => scene.enabled)
