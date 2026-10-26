@@ -48,6 +48,55 @@ PYTHONPATH=src ~/.venvs/embodied-hand-lab/bin/python tools/quest_controller_tran
 
 有效真实发送端确认后再接入统一 Grip 会话及 DH 仿真；阶段二联合仿真通过前不进入阶段三。
 
+### Mac 本轮执行状态：环境已恢复，许可待激活（2026-10-26）
+
+Mac 从集成基线 `0a14ad3` 建立独立 worktree，工作分支
+`work/mac-quest-righttouch-20261026`，保留原 `work/thor-onboarding-quest-dh`
+工作区与发送端旧 checkout 的未跟踪文件。固定发送端 `5b8eac7` 已在独立
+checkout 成功应用现有 `right-touch-v1.patch`；本轮尚未修改补丁或任何 Thor 控制代码。
+
+ADB 实测 Quest 3 `2G97C5ZJ2901FK` 已授权；Android 14 / API 34，
+`ro.build.branch=releases-oculus-14.0-v207`，`ro.hzos.build.display_name=2.7.0`，
+SystemUX `207.0.0.191.1234`，build `52433670032200520`。
+Quest `10.24.0.3/16` ping Thor `10.24.1.68` 两包成功，Thor Wi-Fi 地址也已通过 SSH 核对。
+启动时 mixedprobe 仍运行旧 HTS 流；已停止发送并重启回菜单。
+实际 APK 和操作者展开菜单确认：旧 mixedprobe 只有 Left/Right/Both Hand，
+没有 Right Touch；两个旧 HTS APK 均无 RTOUCH 编码标识。所有旧包和应用数据保留。
+
+| 实装包 | versionName / code |
+| --- | --- |
+| `com.wengmister.handtrackingstreamer` | `1.1.0` / `7` |
+| `com.brvrzl.handtrackingstreamer.mixedprobe` | `1.1.0` / `7` |
+| `com.xrobotoolkit.client.quest` | `1.0.1` / `1` |
+| `com.DefaultCompany.vr_controller` | `1.0` / `11` |
+| `com.brvrzl.handtrackingstreamer.righttouch` | 尚未安装 |
+
+Unity Hub / Editor 起初已被移除，仅剩安装包及旧授权文件。本轮从官方来源恢复
+Hub `3.22.4`、Editor `6000.0.65f1` (`a18e2220bd50`) 和 Android Build Support。
+Editor 在 `/Applications/Unity/Unity.app/Contents/MacOS/Unity`；NDK r27c
+`27.2.12479018`、OpenJDK `17.0.9+9` 位于该 Editor 的 AndroidPlayer 目录，
+SDK 链接到 `~/Library/Android/sdk`，含 API 32/36、Build Tools 36.0.0 和 command-line tools 16.0。
+Editor 安装包与官方公布校验值一致，Apple 分发签名有效；NDK 镜像校验通过，Clang 可执行。
+未升级项目或包版本，未复用旧 Unity Library。
+
+**EditMode 首次实际运行在编译前退出，退出码 198：**
+`Access token is unavailable`、`Found 0 entitlement groups`、
+`No valid Unity Editor license found. Please activate your license.`
+需要操作者在 Unity Hub 登录并激活可用许可，再重跑测试和 Android build。
+目前没有测试 XML、Android build 成功结果、新 APK 或真实 RTOUCH 收包；不能据此声称通过。
+
+本轮证据目录（不进 Git）：
+`/Users/wujunqi/Documents/Codex/2026-10-26/mac-brvrzl-jaka-teleop-quest-3-2/outputs/quest-righttouch-20261026/`，
+包括 `editmode-01.log`、`environment-status.json`、包信息、旧菜单截图、安装与下载日志。
+Thor 可用 SSH 账户仍为 `thor`，`thor-user01` 登录被拒；未修改 user01 私有工作区。
+同基线 input-only gate 的只读源码快照已放到
+`~/.cache/jaka-teleop-righttouch-20261026`，`--help` 启动检查通过，尚未启动监听。
+许可及构建通过后才启动 gate，确认 UDP 9000 空闲，并重新核对 Quest/Thor 地址。
+
+MQDH 接近传感器原为 Enabled，本轮临时设为 Disabled for 2 hours，便于截图；
+结束时或正常使用前应在 Device Actions → Proximity Sensor → Enable 恢复。
+Cast 窗口当前无有效画面，实际截图使用 ADB screencap；不把旧 HTS 画面当作新 RTOUCH 证明。
+
 ## 历史收工状态（2026-10-23）
 
 用户要求今天结束，已停止 Thor 本轮 SDK 观察器和 RoboticsServiceProcess；未发送任何 JAKA/DH 指令。

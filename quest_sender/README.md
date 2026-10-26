@@ -1,8 +1,9 @@
 # Right Touch extension for the existing Quest sender
 
-Current priority: validate the prebuilt Trossen Quest APK first. This Unity
-build workflow is deferred unless real tests show existing applications cannot
-meet the input requirements. See [Mac handoff](../docs/setup/MAC_QUEST_HANDOFF.md).
+Current priority (2026-10-26): build and validate the real Right Touch sender
+below. The installed legacy HTS menu has only Left/Right/Both Hand; XRobo
+observations do not supply the complete RTOUCH validity/session contract. See
+the current phase-two [Mac handoff](../docs/setup/MAC_QUEST_HANDOFF.md).
 
 This directory contains a focused patch for
 [`brVrzl/hand-tracking-streamer`](https://github.com/brVrzl/hand-tracking-streamer/tree/5b8eac7e30ce12481b89b123099693bc658bc578),
