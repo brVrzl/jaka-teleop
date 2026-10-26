@@ -79,7 +79,7 @@ flowchart LR
 | --- | --- |
 | MuJoCo | Thor 新用户 smoke 与 EGL 渲染通过；实物已确认 Mini2，8 组 SDK/MJCF 法兰 FK 计算一致；DH 工具几何仍待验收 |
 | JAKA | 已核对 Mini2 / MiniCab、App 1.7.2.25 / 控制器 1.7.2_49；只读 5 秒/50 周期零 API 错误。未上电、未使能；有效 Servo/TIO 版本及 DH TCP/负载待验收 |
-| Quest | 已收到真实 HTS/CTRL：20 秒 501 CTRL、397 hand、982 head，零解析错误、1 次 stale；CTRL 连接/跟踪标志均为 0，未收到 RTOUCH，右手 Touch 未通过 |
+| Quest | 旧 HTS/CTRL 驱动 JAKA + RH56 实体显示器仿真已由操作者验收；[证据与限制](docs/setup/DEVICE_STATUS.md)。右 Touch + DH 未通过 |
 | DH 电爪 | [JAKA TIO 适配与确认步骤](docs/operation/DH_TIO.md)；铭牌为 PGE-50-26-O-S-M1；接线、供电与通信未验收，不复用 RH56 CH341 配置 |
 | RealSense | 双 D435 RGB/RGB-D 各完成 5 秒并发采集，RGB 无 frame gap；一路 depth gap 为 2；workspace/wrist 角色已由现场画面与用户确认 |
 | RH56 | 原工作流与历史数据保留；当前现场未连接，不作为部署必需设备 |

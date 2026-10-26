@@ -837,13 +837,14 @@ def _live_6dof(args: argparse.Namespace) -> int:
     viewer_skipped_frames = 0
     viewer_updates = 0
     next_telemetry = started
+    events_path.parent.mkdir(parents=True, exist_ok=True)
     with HtsRawRecordingWriter(
         capture_path,
         metadata={
             "mode": "quest_jaka_live_smooth_6dof_simulation_only",
             "controller_provider": "quest_ctrl_udp_v1",
         },
-    ) as writer:
+    ) as writer, events_path.open("w", encoding="utf-8") as event_writer:
         worker = QuestDatagramReceiverWorker(
             bind=args.bind,
             port=args.port,
@@ -894,6 +895,7 @@ def _live_6dof(args: argparse.Namespace) -> int:
                     control_now_ns = time.monotonic_ns()
                     controller_router.poll(control_now_ns, session)
                     session.control_tick(control_now_ns)
+                    event_writer.write(json.dumps(session.latest_event_record) + "\n")
                     if episode_collector is not None:
                         control_sample, reference_established, event = _simulation_control_sample(
                             session, simulation, control_now_ns
@@ -1088,7 +1090,6 @@ def _live_6dof(args: argparse.Namespace) -> int:
             else None
         ),
     )
-    _write_events(session.event_records, events_path)
     _write_report(report, report_path)
     if episode_collector is not None and episode_collector.result is not None:
         print(f"EPISODE_RESULT={episode_collector.result.resolve()}")
@@ -1156,6 +1157,10 @@ def _replay_6dof(args: argparse.Namespace) -> int:
     next_viewer_ns = base_ns
     clutch_sequence = 0
     viewer_updates = 0
+    report_path = args.report or _paths("quest_jaka_replay_6dof")[0]
+    events_path = args.events or report_path.with_suffix(".events.jsonl")
+    events_path.parent.mkdir(parents=True, exist_ok=True)
+    event_writer = events_path.open("w", encoding="utf-8")
     try:
         while now_ns <= end_ns and (handle is None or handle.is_running()):
             while index < len(datagrams) and datagrams[index].receive_monotonic_ns <= now_ns:
@@ -1208,6 +1213,7 @@ def _replay_6dof(args: argparse.Namespace) -> int:
                         provider="deterministic_replay_cli",
                     )
                 session.control_tick(now_ns)
+                event_writer.write(json.dumps(session.latest_event_record) + "\n")
                 next_control_ns += control_period_ns
             _step_smooth_simulation(
                 simulation,
@@ -1223,6 +1229,7 @@ def _replay_6dof(args: argparse.Namespace) -> int:
                 deadline = wall_start + ((now_ns - base_ns) / 1e9) / args.speed
                 time.sleep(max(0.0, min(0.005, deadline - time.monotonic())))
     finally:
+        event_writer.close()
         if handle is not None:
             handle.close()
     report = session.report(str(args.recording.resolve()))
@@ -1236,8 +1243,6 @@ def _replay_6dof(args: argparse.Namespace) -> int:
         arm_output_mode=args.arm_output_mode,
         **controller_router.telemetry(),
     )
-    report_path = args.report or _paths("quest_jaka_replay_6dof")[0]
-    events_path = args.events or report_path.with_suffix(".events.jsonl")
     emitted_path = args.arm_emitted_events or report_path.with_suffix(
         ".arm_emitted_125hz.jsonl"
     )
@@ -1261,7 +1266,6 @@ def _replay_6dof(args: argparse.Namespace) -> int:
             else None
         ),
     )
-    _write_events(session.event_records, events_path)
     _write_report(report, report_path)
     if isinstance(session.arm_output, JakaEquivalent125HzMujocoAdapter):
         session.arm_output.close()

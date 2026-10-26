@@ -11,7 +11,9 @@ The maintained teleoperation entrypoints are:
 ./scripts/run_quest_rh56_hand_test.sh --help
 ```
 
-Use the simulation wrapper for offline/replay work. The bounded arm wrapper
+Use the simulation wrapper for live Quest simulation and recorded replay.
+See [Simulation](../simulation/SIMULATION.md#thor-display-selection--thor-显示模式) for
+physical-monitor, headless, SSH-forwarded display and recording commands. The bounded arm wrapper
 and combined arm/RH56 wrapper are physical procedures and require the explicit
 operator prerequisites in [REAL_ROBOT.md](REAL_ROBOT.md) and
 [REAL_HARDWARE_SAFETY.md](../safety/REAL_HARDWARE_SAFETY.md).
@@ -33,7 +35,9 @@ frame-remapping, or automatic hardware-discovery path.
 ./scripts/run_quest_rh56_hand_test.sh --help
 ```
 
-仿真 wrapper 用于离线/replay；有界 arm wrapper 和 arm/RH56 联合 wrapper 属于真机流程，必须先满足
+仿真 wrapper 用于真实 Quest 联动 MuJoCo 或离线 replay；[仿真操作](../simulation/SIMULATION.md)
+列出实体显示器、headless、SSH 转发、录制与回放命令。
+有界 arm wrapper 和 arm/RH56 联合 wrapper 属于真机流程，必须先满足
 [REAL_ROBOT.md](REAL_ROBOT.md) 和 [REAL_HARDWARE_SAFETY.md](../safety/REAL_HARDWARE_SAFETY.md) 中的
 operator prerequisites。
 

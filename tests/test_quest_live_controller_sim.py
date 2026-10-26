@@ -675,3 +675,30 @@ def test_right_touch_recovery_boundaries_and_gripper_hold(tmp_path, interruption
         assert result.accepted_target is None
         assert session.reference_generation == 1
     assert router.touch.gripper_target_normalized == .6
+
+
+def test_replay_event_log_retains_ticks_beyond_recent_history(tmp_path: Path) -> None:
+    import json
+    import os
+    import subprocess
+    import sys
+
+    recording = tmp_path / "released.raw.jsonl"
+    with HtsRawRecordingWriter(recording) as writer:
+        for seq in range(100):
+            writer.write(_ctrl(seq, 1_000_000_000 + seq * 33_333_333))
+    report = tmp_path / "replay.json"
+    result = subprocess.run(
+        [sys.executable, "tools/quest_jaka_mujoco_sim.py", "replay-6dof",
+         str(recording), "--report", str(report)],
+        env={**os.environ, "PYTHONPATH": "src"}, capture_output=True, text=True,
+        check=False,
+    )
+    # No pose or press was supplied, so this deliberately accepts no arm target.
+    assert result.returncode == 2, result.stderr
+    events = [json.loads(line) for line in report.with_suffix(".events.jsonl").read_text().splitlines()]
+    summary = json.loads(report.read_text())
+    assert len(events) == summary["control_tick_count"] > 128
+    assert events[0]["control_monotonic_ns"] == 1_000_000_000
+    assert events[-1]["control_monotonic_ns"] > events[0]["control_monotonic_ns"]
+    assert not any(event["accepted"] for event in events)

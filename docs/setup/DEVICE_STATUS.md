@@ -1,7 +1,35 @@
 # Thor 新用户部署与设备验证状态
 
-这是 2026-10-23 在当前 `user01` 环境实际执行的记录。离线、计算查询、相机采集与执行器动作分开描述。
+这是在当前 `user01` 环境实际执行的记录（部署 2026-10-23，RH56 仿真追加验收 2026-10-26）。离线、计算查询、相机采集与执行器动作分开描述。
 [安装](INSTALLATION.md) · [JAKA 首次连接](../operation/REAL_ROBOT.md) · [右 Touch](../motion_input/RIGHT_TOUCH.md) · [DH/TIO](../operation/DH_TIO.md)
+
+## RH56 实体显示器仿真验收（2026-10-26）
+
+真实 Quest HTS/Head/CTRL → 原双 Clutch → MuJoCo JAKA/RH56 已实际运行，
+操作者确认动作、方向及重新接管验证通过。未连接或命令物理执行器。
+180 秒运行收到 2,401 CTRL、9,052 hand/head 数据报；673 个无效 CTRL 样本未获授权。
+AcceptedArmTarget 为 2,199，arm/hand 接管次数为 4/2；记录到释放、失效 HOLD、
+有效释放后恢复再接管。viewer 更新 10,795 次，约 59.95 Hz。此轮未单独诱发所有
+限位/碰撞/硬停止场景；对应安全规则由既有离线回归覆盖，不能称全部已做现场故障注入。
+
+实体 DELL U2419H 的 EDID、DRM connected、Xrandr 1920×1080@60 Hz 输出，
+以及全屏 IsViewable MuJoCo 窗口、真实桌面截图/12 秒录屏相互对应。
+桌面属于 `thor` 的 seat0 X11 会话，给本机 `user01` 加了限定用户访问授权，
+没有切换用户、使用 Xvfb 或开放全局 xhost。操作者也确认实体画面。
+
+原事件文件暴露了只输出内存最后 128 tick 的问题，现已改为逐 tick 落盘，
+保留内存有界缓冲。此前 live 的全程关节范围无法从该尾段事件文件恢复；
+原始真实 UDP 完整保留。对该录制进行离线回放得到 4,020 tick、2,202 个 accepted、
+8 次 IK_POSITION_FAILED；六个 RH56 实际仿真关节运动范围分别为
+1.409/0.489/1.325/1.605/1.607/1.607 rad（拇指侧摆、拇指闭合、食/中/无名/小指）。
+这是回放测量，不能冒充原 live 的逐关节统计；live 的执行效果由画面、终端及操作者确认。
+128 项相关回归通过，另复测实体 viewer 3 秒产生全部 180 条事件。
+
+Thor 本地证据保留于 `outputs/teleop-validation/20261026-rh56/`（不提交生成物）：
+`monitor.json`、`monitor.raw.jsonl`、`monitor.log`、`desktop-x11.png`、
+`live-desktop.mp4`、`window-info.txt`、`xrandr.txt` 和 `replay-metrics.json`。
+[常用启动与回放流程](../simulation/SIMULATION.md)。右 Touch + DH 尚未通过；
+此验收不替代新模式或 DH 真机验收。
 
 ## 环境与可复现入口
 
