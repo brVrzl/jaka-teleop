@@ -68,9 +68,9 @@ Mac 通过 `ssh thor` 启动/观察即可。XRobo 使用 TCP 63901 和 UDP 50087
 尚未合并 main，新克隆必须指定工作分支：
 
 ```bash
-git clone --single-branch --branch work/thor-onboarding-quest-dh \
-  https://github.com/brVrzl/embodied-hand-lab.git
-cd embodied-hand-lab
+git clone --single-branch --branch work/jaka-teleop-recovery \
+  https://github.com/brVrzl/jaka-teleop.git
+cd jaka-teleop
 ```
 
 2026-10-23 Mac 新工作区 `/Users/wujunqi/embodied-hand-lab`，起点 `d50f0b3`，初始干净。

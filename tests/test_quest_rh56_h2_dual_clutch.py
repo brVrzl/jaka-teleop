@@ -6,13 +6,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from motion_input import AnalogClutchSample, ReceivedHtsDatagram
-from quest_jaka_sim import JakaMujocoSimulation, ReplayConfig, SmoothQuestJakaSession
+from quest_test_support import hand_datagram, head_datagram as _head, simulation_session as _session
+from motion_input import AnalogClutchSample, Pose6D, ReceivedHtsDatagram
+from quest_jaka_sim import SmoothQuestJakaSession
 from quest_jaka_sim.hand_retarget import (
     RH56_THUMB_CLOSE_RANGE_RAD,
     RH56_THUMB_LATERAL_RANGE_RAD,
 )
-from quest_jaka_sim.simulation import build_viewer_mjcf
 
 
 FINGER_NAMES = ("index", "middle", "ring", "pinky")
@@ -80,31 +80,7 @@ def _points(
 
 
 def _datagram(sequence: int, timestamp_ns: int, points, *, wrist_x: float = 0.0) -> ReceivedHtsDatagram:
-    landmarks = ",".join(str(value) for point in points for value in point)
-    payload = (
-        f"Right wrist | f = {sequence}:,{wrist_x},0,0,0,0,0,1\n"
-        f"Right landmarks | f = {sequence}:,{landmarks}"
-    ).encode()
-    return ReceivedHtsDatagram(payload, "127.0.0.1", 9000, timestamp_ns, timestamp_ns)
-
-
-def _head(sequence: int, timestamp_ns: int) -> ReceivedHtsDatagram:
-    return ReceivedHtsDatagram(
-        f"Head pose | f = {sequence}:,0,0,0,0,0,0,1".encode(),
-        "127.0.0.1",
-        9000,
-        timestamp_ns,
-        timestamp_ns,
-    )
-
-
-def _session(tmp_path: Path) -> SmoothQuestJakaSession:
-    config = replace(
-        ReplayConfig.load("configs/sim/quest_hts_jaka_mini2_live_demo.yaml"),
-        engagement_schedule_s=(),
-    )
-    model_path = build_viewer_mjcf(config.mjcf_path, tmp_path / "h2.xml")
-    return SmoothQuestJakaSession(config, JakaMujocoSimulation(config, mjcf_path=model_path))
+    return hand_datagram(sequence, timestamp_ns, Pose6D((wrist_x, 0, 0), (0, 0, 0, 1)), points=points)
 
 
 def _clutches(

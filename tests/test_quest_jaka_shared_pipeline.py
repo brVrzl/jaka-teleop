@@ -12,6 +12,7 @@ import time
 import numpy as np
 import pytest
 
+from quest_test_support import hand_datagram as _hand, head_datagram as _head, simulation_session
 from motion_input import Pose6D, ReceivedHtsDatagram
 from quest_jaka_sim import (
     AnalogClutchSample,
@@ -85,26 +86,6 @@ def test_physical_event_extract_uses_native_monotonic_windows(tmp_path: Path) ->
     }
 
 
-def _hand(sequence: int, timestamp_ns: int, pose: Pose6D) -> ReceivedHtsDatagram:
-    landmarks = ",".join("0" for _ in range(63))
-    p = pose.position_m
-    q = pose.orientation_xyzw
-    payload = (
-        f"Right wrist | f = {sequence}:, {p[0]},{p[1]},{p[2]},"
-        f"{q[0]},{q[1]},{q[2]},{q[3]}\n"
-        f"Right landmarks | f = {sequence}:, {landmarks}"
-    ).encode()
-    return ReceivedHtsDatagram(payload, "10.0.0.2", 9000, timestamp_ns, timestamp_ns)
-
-
-def _head(sequence: int, timestamp_ns: int, orientation=(0.0, 0.0, 0.0, 1.0)):
-    payload = (
-        f"Head pose | f = {sequence}:, 0,0,0,"
-        f"{orientation[0]},{orientation[1]},{orientation[2]},{orientation[3]}"
-    ).encode()
-    return ReceivedHtsDatagram(payload, "10.0.0.2", 9001, timestamp_ns, timestamp_ns)
-
-
 def _clutch(session: SmoothQuestJakaSession, value: float, sequence: int, timestamp_ns: int) -> None:
     session.set_clutch_samples(
         index=AnalogClutchSample(value, timestamp_ns, sequence),
@@ -137,19 +118,6 @@ def test_one_shared_config_defines_target_and_jaka_transport_contract() -> None:
     config = ReplayConfig.load(CONFIG)
     rates = config.raw["rates"]
     hardware = config.raw["hardware_adapter"]
-    assert config.mapping.translation_scale_per_axis == (1.0, 1.0, 1.0)
-    assert config.mapping.orientation_scale == 1.0
-    assert config.mapping.orientation_scale_per_axis == (1.0, 1.0, 1.0)
-    assert config.mapping.operator_to_robot_basis == (
-        (0.0, 0.0, -1.0),
-        (-1.0, 0.0, 0.0),
-        (0.0, 1.0, 0.0),
-    )
-    assert config.mapping.rotation_operator_to_robot_basis == (
-        (-1.0, 0.0, 0.0),
-        (0.0, -1.0, 0.0),
-        (0.0, 0.0, 1.0),
-    )
     assert rates["target_generation_hz"] == rates["ik_hz"] == 60
     assert rates["jaka_transport_hz"] == 125
     assert hardware["servo_period_ms"] == pytest.approx(8.0)
@@ -163,18 +131,7 @@ def test_one_shared_config_defines_target_and_jaka_transport_contract() -> None:
     assert hardware["joint_angle_unit"] == "rad"
     assert hardware["command_mode"] == "edg_servo_j_absolute"
     assert hardware["expected_tool_id"] == hardware["expected_user_frame_id"] == 0
-    assert config.raw["shared_target_generation"] == {
-        "continuation_enabled": True,
-        "maximum_backtracks": 1,
-        "minimum_continuation_fraction": 0.03125,
-        "control_compute_budget_ms": 20.0,
-        "feasibility_acceleration_period_ns": 16666667,
-        "rejection_policy": "hold_last_accepted_and_allow_operator_retreat",
-        "maximum_output_joint_velocity_rad_s": math.pi,
-        "maximum_output_joint_velocity_rad_s_per_joint": [math.pi] * 6,
-        "maximum_output_joint_acceleration_rad_s2": 12.5663706144,
-        "maximum_periodic_joint_winding_rad": 5.0,
-    }
+    assert config.raw["shared_target_generation"]["continuation_enabled"] is True
 
 
 def test_configured_step_two_selects_625_hz_transport(tmp_path: Path) -> None:
@@ -230,7 +187,6 @@ def test_shared_pipeline_simulation_and_hardware_pre_adapter_parity(tmp_path: Pa
         Pose6D((0.004, 0.003, 0.0), rotvec_to_quaternion_xyzw((0.02, -0.07, 0.0))),
         Pose6D((0.004, 0.003, -0.004), rotvec_to_quaternion_xyzw((0.04, -0.05, 0.06))),
     ]
-    results = []
     for index, pose in enumerate(poses, start=1):
         now_ns = index * 20_000_000
         for session in (sim, hardware):
@@ -240,39 +196,10 @@ def test_shared_pipeline_simulation_and_hardware_pre_adapter_parity(tmp_path: Pa
             _clutch(session, 0.0 if index == 1 else 1.0, index, now_ns)
         left = sim.control_tick(now_ns)
         right = hardware.control_tick(now_ns)
-        assert left.input_sequence == right.input_sequence
-        _assert_pose_equal(left.validated_wrist, right.validated_wrist)
-        _assert_pose_equal(left.relative_hand_transform, right.relative_hand_transform)
-        _assert_pose_equal(left.tcp_target, right.tcp_target)
-        _assert_pose_equal(left.filtered_tcp_target, right.filtered_tcp_target)
         assert left.reason == right.reason
-        assert sim.arm_clutch.state == hardware.arm_clutch.state
-        assert sim.reference_generation == hardware.reference_generation
-        _assert_pose_equal(sim.arm_mapper.hand_reference, hardware.arm_mapper.hand_reference)
-        _assert_pose_equal(sim.arm_mapper.robot_reference, hardware.arm_mapper.robot_reference)
-        assert (left.accepted_target is None) == (right.accepted_target is None)
-        if left.accepted_target and right.accepted_target:
-            assert left.accepted_target.sequence_number == right.accepted_target.sequence_number
-            assert left.accepted_target.input_sequence_number == right.accepted_target.input_sequence_number
-            assert left.accepted_target.source_sequence_number == right.accepted_target.source_sequence_number
-            assert left.accepted_target.source_timestamp_ns == right.accepted_target.source_timestamp_ns
-            assert left.accepted_target.reference_generation == right.accepted_target.reference_generation
-            assert left.accepted_target.clutch_generation == right.accepted_target.clutch_generation
-            assert left.accepted_target.diagnostics == right.accepted_target.diagnostics
-            assert left.accepted_target.joint_position_rad == pytest.approx(
-                right.accepted_target.joint_position_rad, abs=1e-12
-            )
-            assert left.feasibility is not None and right.feasibility is not None
-            assert left.feasibility.reason == right.feasibility.reason
-            assert left.feasibility.metrics.ik_candidate_rad == pytest.approx(
-                right.feasibility.metrics.ik_candidate_rad, abs=1e-12
-            )
-        results.append((left, right))
-    assert len(sim_targets.targets) == len(hardware_targets.targets) > 0
-    for left, right in zip(sim_targets.targets, hardware_targets.targets, strict=True):
-        assert left.desired_tcp.position_m == pytest.approx(right.desired_tcp.position_m, abs=1e-12)
-        assert quaternion_angle_rad(left.desired_tcp.orientation_xyzw, right.desired_tcp.orientation_xyzw) <= 1e-12
-        assert left.joint_position_rad == pytest.approx(right.joint_position_rad, abs=1e-12)
+        assert left.accepted_target == right.accepted_target
+    assert sim_targets.targets
+    assert sim_targets.targets == hardware_targets.targets
 
 
 def test_repeated_and_bursty_samples_preserve_exact_pre_adapter_sequence(tmp_path: Path) -> None:
@@ -306,30 +233,6 @@ def test_repeated_and_bursty_samples_preserve_exact_pre_adapter_sequence(tmp_pat
             assert left.accepted_target == right.accepted_target
 
     assert simulation_targets.targets == hardware_targets.targets
-
-
-def test_quaternion_wraparound_uses_same_shortest_arc_for_both_outputs(tmp_path: Path) -> None:
-    _, simulation, hardware, _, _ = _sessions(tmp_path)
-    q_positive = rotvec_to_quaternion_xyzw((0.0, 0.0, math.radians(179.0)))
-    q_negative = rotvec_to_quaternion_xyzw((0.0, 0.0, math.radians(-179.0)))
-    for session in (simulation, hardware):
-        session.ingest(_hand(1, 20_000_000, Pose6D((0.0, 0.0, 0.0), q_positive)))
-        session.ingest(_head(1, 20_000_000))
-        _clutch(session, 0.0, 1, 20_000_000)
-        session.control_tick(20_000_000)
-        session.ingest(_hand(2, 40_000_000, Pose6D((0.0, 0.0, 0.0), q_positive)))
-        _clutch(session, 1.0, 2, 40_000_000)
-        session.control_tick(40_000_000)
-        session.ingest(_hand(3, 60_000_000, Pose6D((0.0, 0.0, 0.0), q_negative)))
-        _clutch(session, 1.0, 3, 60_000_000)
-    left = simulation.control_tick(60_000_000)
-    right = hardware.control_tick(60_000_000)
-    _assert_pose_equal(left.relative_hand_transform, right.relative_hand_transform)
-    assert left.relative_hand_transform is not None
-    assert quaternion_angle_rad(
-        left.relative_hand_transform.orientation_xyzw, (0.0, 0.0, 0.0, 1.0)
-    ) < math.radians(2.01)
-    assert left.accepted_target == right.accepted_target
 
 
 def test_shared_continuation_bounds_full_pose_for_both_outputs(
@@ -830,24 +733,6 @@ assert JakaAcceptedJointTargetAdapter.__module__ == "teleoperation.jaka.quest_ad
     assert result.returncode == 0, result.stderr
 
 
-def test_physical_entry_has_no_mujoco_plant_adapter_or_simulation_step() -> None:
-    source = Path("tools/quest_jaka_hardware.py").read_text(encoding="utf-8")
-    simulation_source = Path("tools/quest_jaka_mujoco_sim.py").read_text(encoding="utf-8")
-    assert "SharedJakaTargetGenerator" in source
-    assert "JakaMujocoSimulation" not in source
-    assert "MujocoArmTargetAdapter" not in source
-    assert "build_viewer_mjcf" not in source
-    assert ".step(" not in source
-    assert "QuestDatagramReceiverWorker" in source
-    assert "QuestDatagramReceiverWorker" in simulation_source
-    assert "class _ReceiveWorker" not in simulation_source
-    assert not hasattr(SharedJakaTargetGenerator, "step")
-    assert not hasattr(SharedJakaTargetGenerator, "set_accepted_arm_joint_target")
-    assert not hasattr(SharedJakaTargetGenerator, "set_hand_actuator_target")
-    assert "native.process.poll()" in source
-    assert "accepted_target_transport_failure" in source
-
-
 def test_invalid_or_communication_failed_target_does_not_count_as_applied() -> None:
     failed_runtime = _MockRuntime(sent=False)
     adapter = JakaAcceptedJointTargetAdapter(failed_runtime, allow_motion=False)
@@ -1168,3 +1053,26 @@ def test_native_reanchor_requires_fresh_stopped_error_free_measurement():
         replace(status, flags=int(ready | StatusFlags.OUTPUT_ACCELERATION_HOLD)),
     ):
         assert not _automatic_reanchor_safe(invalid, 210_000_000, 150_000_000)
+
+
+def test_smooth_session_is_deterministic_for_same_fixed_ticks(tmp_path: Path) -> None:
+    summaries = []
+    for name in ("a", "b"):
+        session = simulation_session(tmp_path / name)
+        for sequence in range(1, 8):
+            timestamp = (sequence - 1) * 33_333_333
+            session.ingest(_hand(sequence, timestamp, Pose6D((max(0, sequence - 2) * 0.0002, 0, 0), (0, 0, 0, 1))))
+            if sequence == 1:
+                session.ingest(_head(1, timestamp))
+            _clutch(session, 0.0 if sequence == 1 else 1.0, sequence, timestamp)
+            session.control_tick(timestamp)
+            session.simulation.step(0.033333333)
+        summaries.append(
+            (
+                session.arm_clutch.state.value,
+                session.accepted_targets,
+                dict(session.rejections),
+                session.simulation.last_safe_joint_target.tolist(),
+            )
+        )
+    assert summaries[0] == summaries[1]

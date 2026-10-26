@@ -37,8 +37,8 @@ NVIDIA 驱动、内核、EGL 和网络属于系统前置条件；不要复制旧
 ```bash
 mkdir -p ~/projects
 cd ~/projects
-git clone --branch work/thor-onboarding-quest-dh --single-branch https://github.com/brVrzl/embodied-hand-lab.git
-cd embodied-hand-lab
+git clone --branch work/jaka-teleop-recovery --single-branch https://github.com/brVrzl/jaka-teleop.git
+cd jaka-teleop
 python3 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/python -m pip install -e '.[simulation]'
@@ -46,6 +46,8 @@ python3 -m venv .venv
 
 若目录已存在，先执行 `git status --short --branch` 和 `git remote -v`，确认身份和未提交修改；不要覆盖旧 checkout。
 本教程在仓库根目录执行命令，使用 `.venv/bin/python`，不依赖 shell alias 或旧用户绝对路径。
+仓库改名不要求重命名现有 Thor/Mac 工作目录、虚拟环境或 `embodied-lab` CLI；下方新克隆使用 `jaka-teleop` 目录。
+
 也可把环境建在自己的 `~/.venvs/embodied-hand-lab`；将示例中的 `.venv/bin/` 替换成该路径。
 脚本提供 `--python` 时显式指定解释器，例如：
 
@@ -182,8 +184,8 @@ Use a new per-user environment; existing NVIDIA drivers, kernel, EGL and network
 The Thor onboarding checks have run on Ubuntu 24.04/aarch64, L4T 39.2, Python 3.12, CMake 3.28 and GCC 13.
 
 ```bash
-git clone --branch work/thor-onboarding-quest-dh --single-branch https://github.com/brVrzl/embodied-hand-lab.git
-cd embodied-hand-lab
+git clone --branch work/jaka-teleop-recovery --single-branch https://github.com/brVrzl/jaka-teleop.git
+cd jaka-teleop
 python3 -m venv .venv
 .venv/bin/python -m pip install -e '.[simulation]'
 .venv/bin/embodied-lab --help

@@ -80,6 +80,12 @@ def test_relative_orientation_and_shortest_path_slerp() -> None:
         midpoint, rotvec_to_quaternion_xyzw((math.pi / 4.0, 0.0, 0.0))
     ) < 1e-8
 
+    # The former two-output integration case belongs at the SE(3) boundary.
+    positive = rotvec_to_quaternion_xyzw((0, 0, math.radians(179)))
+    negative = rotvec_to_quaternion_xyzw((0, 0, math.radians(-179)))
+    wrapped = relative_pose(Pose6D((0, 0, 0), positive), Pose6D((0, 0, 0), negative))
+    assert quaternion_angle_rad(wrapped.orientation_xyzw, (0, 0, 0, 1)) < math.radians(2.01)
+
 
 def test_bounded_pose_step_preserves_one_coupled_full_pose_fraction() -> None:
     start = Pose6D((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))

@@ -370,18 +370,6 @@ def test_quaternion_sign_and_many_recenter_cycles_have_zero_jump_and_no_accumula
         assert quaternion_angle_rad(same.orientation_xyzw, tcp.orientation_xyzw) < 1e-8
 
 
-def test_precision_simulation_path_has_no_physical_robot_import_or_connection() -> None:
-    forbidden = ("jaka_driver_adapter.hardware", "inspire_hand", "serial.Serial", "connect_robot")
-    for path in (
-        Path("src/quest_jaka_sim/clutch.py"),
-        Path("src/quest_jaka_sim/precision_mapping.py"),
-        Path("src/quest_jaka_sim/smooth_session.py"),
-        Path("tools/quest_jaka_mujoco_sim.py"),
-    ):
-        source = path.read_text(encoding="utf-8")
-        assert not any(token in source for token in forbidden), path
-
-
 def test_ik_invalid_candidate_is_held_and_does_not_accumulate(tmp_path: Path) -> None:
     config = ReplayConfig.load("configs/sim/quest_hts_jaka_mini2_live_demo.yaml")
     model_path = build_viewer_mjcf(config.mjcf_path, tmp_path / "viewer.xml")

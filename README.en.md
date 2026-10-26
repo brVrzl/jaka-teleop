@@ -22,8 +22,8 @@ RGB-D, robot state, actions and timing can be recorded as episodes for review be
 ## Start without hardware
 
 ```bash
-git clone https://github.com/brVrzl/embodied-hand-lab.git
-cd embodied-hand-lab
+git clone https://github.com/brVrzl/jaka-teleop.git
+cd jaka-teleop
 python3 -m venv .venv
 .venv/bin/python -m pip install -e '.[simulation]'
 .venv/bin/embodied-lab --help

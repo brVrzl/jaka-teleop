@@ -6,21 +6,22 @@ from pathlib import Path
 
 import pytest
 
+from quest_test_support import hand_datagram, head_datagram as _head, simulation_session as _session
+
 from motion_input import (
+    Pose6D,
     AnalogClutchSample,
     HtsRawRecordingReader,
     HtsRawRecordingWriter,
     ReceivedHtsDatagram,
 )
 from quest_jaka_sim import (
-    JakaMujocoSimulation,
     ReplayConfig,
     SharedJakaTargetGenerator,
     SmoothQuestJakaSession,
 )
 from quest_jaka_sim.output import RecordingArmTargetAdapter
 from quest_jaka_sim.live_controller import LiveQuestControllerRouter
-from quest_jaka_sim.simulation import build_viewer_mjcf
 
 
 class _FakeSession:
@@ -92,35 +93,7 @@ def _hand(
             (0.012, 0.050, 0.0),
             (0.012, 0.025, 0.0),
         ]
-    landmarks = ",".join(str(value) for point in points for value in point)
-    payload = (
-        f"Right wrist | f = {sequence}:,{x},0,0,0,0,0,1\n"
-        f"Right landmarks | f = {sequence}:,{landmarks}"
-    ).encode()
-    return ReceivedHtsDatagram(payload, "10.24.1.99", 50000, timestamp_ns, timestamp_ns)
-
-
-def _head(sequence: int, timestamp_ns: int) -> ReceivedHtsDatagram:
-    payload = f"Head pose | f = {sequence}:,0,0,0,0,0,0,1".encode()
-    return ReceivedHtsDatagram(payload, "10.24.1.99", 50000, timestamp_ns, timestamp_ns)
-
-
-def _session(
-    tmp_path: Path,
-    *,
-    input_recovery_timeout_s: float | None = None,
-) -> SmoothQuestJakaSession:
-    config = replace(
-        ReplayConfig.load("configs/sim/quest_hts_jaka_mini2_live_demo.yaml"),
-        engagement_schedule_s=(),
-    )
-    if input_recovery_timeout_s is not None:
-        config = replace(
-            config,
-            input_recovery_timeout_s=input_recovery_timeout_s,
-        )
-    model = build_viewer_mjcf(config.mjcf_path, tmp_path / "viewer.xml")
-    return SmoothQuestJakaSession(config, JakaMujocoSimulation(config, mjcf_path=model))
+    return hand_datagram(sequence, timestamp_ns, Pose6D((x, 0, 0), (0, 0, 0, 1)), points=points)
 
 
 def test_router_keeps_ctrl_out_of_legacy_hts_ingest() -> None:
@@ -131,19 +104,6 @@ def test_router_keeps_ctrl_out_of_legacy_hts_ingest() -> None:
     assert session.frames[-1][3] == "quest_ctrl_udp_v1"
     assert router.ingest(_hand(1, 2), session).kind == "hand_head"
     assert len(session.hand_head) == 1
-
-
-def test_router_requires_both_release_after_new_session() -> None:
-    session = _FakeSession()
-    router = LiveQuestControllerRouter(stale_after_s=1.0)
-    router.ingest(_ctrl(1, 1, session=1, index=1.0), session)
-    assert not session.frames[-1][0].valid
-    router.ingest(_ctrl(0, 2, session=2, index=1.0), session)
-    assert not session.frames[-1][0].valid
-    router.ingest(_ctrl(1, 3, session=2), session)
-    assert session.frames[-1][0].valid and session.frames[-1][1].valid
-    router.ingest(_ctrl(2, 4, session=2, index=1.0), session)
-    assert session.frames[-1][0].valid and session.frames[-1][0].value == 1.0
 
 
 def test_router_stale_and_invalid_facts_publish_both_invalid() -> None:

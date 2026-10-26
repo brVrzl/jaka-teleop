@@ -11,7 +11,6 @@ from teleoperation.contracts import (
     arm_pose_sample_from_dict,
     contract_json_dumps,
 )
-from teleoperation.sequence import SequenceDisposition, SequenceTracker
 
 
 def test_arm_pose_contract_round_trip_and_separate_clock_domains() -> None:
@@ -43,12 +42,3 @@ def test_sequences_reject_boolean_and_float(value: object) -> None:
 def test_pose_rejects_non_unit_quaternion() -> None:
     with pytest.raises(ValueError, match="unit length"):
         Pose3D((0, 0, 0), (0, 0, 0, 2))
-
-
-def test_sequence_tracker_rejects_duplicate_and_reordered() -> None:
-    tracker = SequenceTracker()
-    assert tracker.observe(3) is SequenceDisposition.FIRST
-    assert tracker.observe(4) is SequenceDisposition.NEW
-    assert tracker.observe(4) is SequenceDisposition.DUPLICATE
-    assert tracker.observe(2) is SequenceDisposition.REORDERED
-    assert tracker.last_sequence == 4

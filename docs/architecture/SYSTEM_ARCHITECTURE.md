@@ -81,7 +81,7 @@ retargeting and its independent hand clutch remain separate.
 | `motion_input` | Canonical protocol, timestamps, ordering, input facts and arm/hand clutch primitives. |
 | `quest_jaka_sim/clutch.py` | Import-only compatibility exports; no state machine implementation. Retained for current public imports. |
 | `teleoperation.accepted_target`, `jaka.quest_adapter`, `runtime`, `wire`, `output_feasibility` | Maintained output contract, transport and native lifecycle. |
-| `teleoperation.processing.ClutchController` | Separate Cartesian processing prototype with its own tests; not called by the maintained Quest/JAKA path. Not adopted as a second live clutch. |
+| Former `teleoperation.processing`, `transforms`, `input`, `supervision`, `state_machine`, `safety`, `sequence`, and Python `jaka.backend/fake_backend` | Removed disconnected Cartesian prototype and its exclusive tests. Production safety and fake-backend validation remain in the native worker and shared Quest pipeline. Wire/public serialized contracts are retained. |
 | `QuestJakaReplaySession` | Older `replay` CLI experiment, still has a real caller and tests; retained, not the live control path. Use `replay-6dof` for shared-path verification. |
 | `teleop_rearchitecture.cpp_shaping` | Retained offline bindings to native shaping contracts and tests. |
 | Former `teleop_rearchitecture.engagement` | Removed unused Python coordinator whose only callers were its tests. Native first-output continuity regression retained in `test_teleop_shaping_cpp.py`. |

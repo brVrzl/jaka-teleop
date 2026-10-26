@@ -29,8 +29,8 @@ JAKA · MuJoCo · Quest · RGB-D · RH56 / DH 适配
 ## 最短起步：无需连接设备
 
 ```bash
-git clone https://github.com/brVrzl/embodied-hand-lab.git
-cd embodied-hand-lab
+git clone https://github.com/brVrzl/jaka-teleop.git
+cd jaka-teleop
 python3 -m venv .venv
 .venv/bin/python -m pip install -e '.[simulation]'
 .venv/bin/embodied-lab --help
