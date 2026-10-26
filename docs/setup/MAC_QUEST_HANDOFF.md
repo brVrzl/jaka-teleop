@@ -52,22 +52,37 @@ PYTHONPATH=src ~/.venvs/embodied-hand-lab/bin/python tools/quest_controller_tran
 
 有效真实发送端确认后再接入统一 Grip 会话及 DH 仿真；阶段二联合仿真通过前不进入阶段三。
 
-### Thor 后续进展与 Mac 最小补充
+### 最新补充：XRobo 右 Touch 已唤醒并完成重启恢复（2026-10-26）
 
-Thor 已复制并独立分析同轮原始回调，确认全部30,328帧断连全零；已完成
-严格隔离的 XRobo native replay 与 JAKA + DH 代理模型联合仿真，见
-[Thor证据与限制](DEVICE_STATUS.md#xrobo-原生输入与-dh-代理仿真2026-10-26thor)。
-当前开发分支 `work/jaka-teleop-xrobo-dh-sim`。不要重复 RH56 验收或重开 HTS UI 开发。
+本轮继续使用原版XRobo Quest v1.0.1，未继续修HTS、未修改Unity/Thor控制链。
+右手柄系统id `3a04abe84951aa41`，配对连接仍在、初始为asleep/inactive；
+操作者唤醒后系统为CONNECTED_ACTIVE / POSITION，收到真实位姿及按键变化。
+无需重配对；不能据此回溯证明历史30,328全零帧的唯一原因。
 
-Mac 下一小步：恢复右 Touch 连接，使用 XRobo 原生 input-only 重新记录 Grip/Trigger/B、
-停流恢复和应用重启；保留原始回调及事件标记。核对 Head root pose 和 Controller visual
-world transform 是否位于同一运行时参考空间。若补充原生消息，只增加从 SDK 读取的
-右控制器 IsConnected/IsPoseValid、应用源 session/seq 与 tracking-origin/recenter 代次，
-不要从非零姿态或主机回调计数推断这些字段。先提交真实样例和负面转换结果，
-不要把新字段接进物理控制或更改 Thor host 管线。Thor 目前不等这项结果继续离线仿真，
-但实时联合验收仍须等待连接与必要证据完成。
+新的`native-20261026-02`共31,142条SDK Tracking回调；独立动作窗口4,565帧：
+Grip、Trigger均覆盖0–1，仅Grip612帧/仅Trigger289帧，Grip保持4.840秒，
+B按下317帧并有按下/释放沿，三轴移动及旋转已记录。
+关闭Send产生12.299秒空档，观察器stale时frame为空，重新开启后有真实输入。
+ADB退出/重启PID22548→28566后，新进程5,498帧含实际变化的位姿及Grip/Trigger/B，
+xyz全零帧0，本次没有重复历史全零现象。这个结果不等于自动重连和tracking安全门已通过。
 
-### Mac 本轮执行结果：XRobo 原生基础输入已证实，重连待补（2026-10-26）
+头动时Head变化而Controller输出完全不变；源码表明两者均为Unity world，
+但visual可冻结旧值，故尚不能认证静止控制器保持有效追踪或跨recenter的稳定连续性。
+recenter有实际Unity事件日志，原版JSON仍无对应代次，也无右IsConnected/IsPoseValid、
+严格tracking标志、源session/seq。已转换右手坐标，接收端不得再次翻Z。
+**IsPoseValid虽真实可读取，但当前Meta provider未独立检查位置追踪质量，不能当作严格tracked。**
+真正断开右手柄测试由操作者取消，没有取电池确认，标记未执行，不再追加手动操作。
+
+完整字段契约、实测边界、源码来源与后续事项见
+[XRobo原生输入记录](../motion_input/XROBO_NATIVE.md)。
+Thor证据：`/home/thor/.cache/embodied-hand-lab-xrobo/native-20261026-02/`；
+Mac副本：`/Users/wujunqi/Documents/Codex/2026-10-26/mac-brvrzl-jaka-teleop-quest-3-2/outputs/xrobo-minimal-20261026-02/`。
+原始JSONL、状态、事件、统计、样例已复制并核对SHA256，未进Git；历史native-01及APK保留。
+本轮无新APK/Unity build；原版同包更新存在Editor2021.3.45f2缺失及签名不同的前置限制。
+本轮Quest应用、观察器和PC Service已停止，没有实物动作；Thor离线仿真无需等待后续补字段。
+
+### 前轮执行结果：XRobo 原生基础输入已证实，当时重连待补（2026-10-26）
+
 
 ADB Quest 3 `2G97C5ZJ2901FK` 已授权；Android 14 / API 34，Horizon 分支
 `releases-oculus-14.0-v207`，属性显示名 `2.7.0`，SystemUX `207.0.0.191.1234`，
