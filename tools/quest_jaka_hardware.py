@@ -35,9 +35,10 @@ from quest_jaka_sim import (
 )
 from quest_jaka_sim.live_controller import LiveQuestControllerRouter
 from quest_jaka_sim.live_input import QuestDatagramReceiverWorker
+from teleoperation.contracts import ControllerState
 from teleoperation.jaka.quest_adapter import JakaAcceptedJointTargetAdapter
 from teleoperation.runtime.arm_only import ArmOnlyRuntime, NativeWorkerProcess
-from teleoperation.wire import LatestTargetPublisher, StatusFlags, WorkerStatusReceiver
+from teleoperation.wire import LatestTargetPublisher, StatusFlags, WorkerStatusPacket, WorkerStatusReceiver
 from teleoperation.output_feasibility import (
     NATIVE_DEFENSIVE_OUTPUT_JERK_LIMIT_RAD_S3,
 )
@@ -634,6 +635,26 @@ def _wait_status(runtime: ArmOnlyRuntime, native: NativeWorkerProcess, timeout_s
             raise RuntimeError("JAKA worker exited before reporting connected state")
         time.sleep(0.005)
     raise RuntimeError("JAKA worker did not report startup reference ready state")
+
+
+def _automatic_reanchor_safe(
+    status: WorkerStatusPacket | None, now_ns: int, stale_after_ns: int
+) -> bool:
+    """Use native measured-state freshness and stopped readiness, never SDK polling."""
+    if status is None:
+        return False
+    required = StatusFlags.CONNECTED | StatusFlags.EDG_ACTIVE | StatusFlags.STOPPED_READY
+    flags = StatusFlags(status.flags)
+    return bool(
+        status.state == tuple(ControllerState).index(ControllerState.HOLDING)
+        and flags & required == required
+        and not flags & (StatusFlags.CONTROLLED_BRAKING | StatusFlags.OUTPUT_ACCELERATION_HOLD)
+        and status.error_code == 0
+        and 0 < status.observation_monotonic_ns <= now_ns
+        and now_ns - status.observation_monotonic_ns <= stale_after_ns
+        and 0 < status.worker_monotonic_ns <= now_ns
+        and now_ns - status.worker_monotonic_ns <= stale_after_ns
+    )
 
 
 def _control_output_failed(*, reason: str, output_applied: bool) -> bool:
@@ -1321,6 +1342,9 @@ def main() -> int:
                         session_started_ns = time.perf_counter_ns()
                         tick = session.control_tick(
                             now_ns,
+                            automatic_reanchor_safe=_automatic_reanchor_safe(
+                                status, now_ns, session.arm_clutch.stale_after_ns
+                            ),
                             fresh_measured_joint_position_rad=(
                                 None
                                 if status is None

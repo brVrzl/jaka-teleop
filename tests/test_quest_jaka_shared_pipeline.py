@@ -499,36 +499,54 @@ def test_reference_clutch_release_reengage_and_latched_head_compensation(tmp_pat
     assert recaptured.accepted_target.reference_generation == 2
 
 
-def test_tracking_loss_requires_release_then_recaptures_without_jump(tmp_path: Path) -> None:
-    _, _, session, _, recorder = _sessions(tmp_path)
+@pytest.mark.parametrize("trusted", [False, True])
+@pytest.mark.parametrize("output", ["simulation", "hardware_adapter"])
+def test_tracking_loss_reanchors_only_with_trusted_continuity_and_safe_state(
+    tmp_path: Path, trusted: bool, output: str,
+) -> None:
+    _, sim, hardware, sim_recorder, hw_recorder = _sessions(tmp_path)
+    session, recorder = (sim, sim_recorder) if output == "simulation" else (hardware, hw_recorder)
     identity = Pose6D((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))
-    for sequence, clutch in ((1, 0.0), (2, 1.0)):
-        now_ns = sequence * 20_000_000
-        session.ingest(_hand(sequence, now_ns, identity))
-        if sequence == 1:
-            session.ingest(_head(1, now_ns))
-        _clutch(session, clutch, sequence, now_ns)
-        session.control_tick(now_ns)
+
+    def input_frame(sequence, now_ns, value, pose):
+        session.ingest(_hand(sequence, now_ns, pose))
+        session.ingest(_head(sequence, now_ns))
+        session.set_clutch_samples(
+            index=AnalogClutchSample(value, now_ns, sequence,
+                continuity_generation=1 if trusted else None),
+            grip=AnalogClutchSample(0, now_ns, sequence),
+            left_controller_valid=True, provider="synthetic_continuity_test",
+        )
+        return session.control_tick(now_ns,
+            fresh_measured_joint_position_rad=session.target_generator.last_safe_joint_target,
+            automatic_reanchor_safe=True)
+
+    input_frame(1, 20_000_000, 0, identity)
+    initial = input_frame(2, 40_000_000, 1, identity)
     baseline = len(recorder.targets)
-    session.control_tick(400_000_000)
+    assert session.control_tick(200_000_000).accepted_target is None
     assert session.arm_clutch.state.value == "tracking_fault"
-
-    session.ingest(_hand(3, 420_000_000, identity))
-    session.ingest(_head(2, 420_000_000))
-    _clutch(session, 1.0, 3, 420_000_000)
-    assert session.control_tick(420_000_000).accepted_target is None
     assert len(recorder.targets) == baseline
-
-    session.ingest(_hand(4, 440_000_000, identity))
-    _clutch(session, 0.0, 4, 440_000_000)
-    session.control_tick(440_000_000)
-    session.ingest(_hand(5, 460_000_000, identity))
-    _clutch(session, 1.0, 5, 460_000_000)
-    recovered = session.control_tick(460_000_000)
+    # Movement while input was lost must never be chased on recovery.
+    moved = Pose6D((0.15, 0.0, 0.0), rotvec_to_quaternion_xyzw((0, 0, .4)))
+    recovered = input_frame(3, 220_000_000, 1, moved)
+    if not trusted:
+        assert recovered.accepted_target is None
+        assert len(recorder.targets) == baseline
+        input_frame(4, 240_000_000, 0, moved)
+        recovered = input_frame(5, 260_000_000, 1, moved)
     assert recovered.accepted_target is not None
     assert recovered.accepted_target.reference_generation == 2
     assert recovered.relative_hand_transform is not None
-    assert recovered.relative_hand_transform.position_m == pytest.approx((0.0, 0.0, 0.0), abs=1e-12)
+    assert recovered.relative_hand_transform.position_m == pytest.approx((0, 0, 0), abs=1e-12)
+    assert quaternion_angle_rad(recovered.relative_hand_transform.orientation_xyzw,
+                                (0, 0, 0, 1)) < 1e-7
+    assert recovered.accepted_target.joint_position_rad == pytest.approx(
+        initial.accepted_target.joint_position_rad, abs=1e-9)
+    continued = input_frame(6, 280_000_000, 1,
+                            Pose6D((.151, 0, 0), moved.orientation_xyzw))
+    assert continued.accepted_target is not None
+    assert continued.accepted_target.reference_generation == 2
 
 
 def test_mujoco_render_or_plant_stall_cannot_block_hardware_target_generation(
@@ -1129,3 +1147,24 @@ def test_output_acceleration_rejection_heartbeats_hold_and_recovers_without_rest
         <= math.pi + 1e-12
     )
     assert not recovered.feasibility.metrics.branch_switch
+
+
+def test_native_reanchor_requires_fresh_stopped_error_free_measurement():
+    from tools.quest_jaka_hardware import _automatic_reanchor_safe
+    from teleoperation.wire import StatusFlags, WorkerStatusPacket
+    ready = StatusFlags.CONNECTED | StatusFlags.EDG_ACTIVE | StatusFlags.STOPPED_READY
+    status = WorkerStatusPacket(state=5, flags=int(ready), last_sequence=1,
+        loop_sequence=1, worker_monotonic_ns=200_000_000,
+        command_monotonic_ns=200_000_000, observation_monotonic_ns=200_000_000,
+        joint_position_rad=(0.,) * 6, error_code=0)
+    assert _automatic_reanchor_safe(status, 210_000_000, 150_000_000)
+    for invalid in (
+        None, replace(status, error_code=1), replace(status, state=8),
+        replace(status, observation_monotonic_ns=1),
+        replace(status, worker_monotonic_ns=1),
+        replace(status, observation_monotonic_ns=220_000_000),
+        replace(status, flags=int(StatusFlags.CONNECTED)),
+        replace(status, flags=int(ready | StatusFlags.CONTROLLED_BRAKING)),
+        replace(status, flags=int(ready | StatusFlags.OUTPUT_ACCELERATION_HOLD)),
+    ):
+        assert not _automatic_reanchor_safe(invalid, 210_000_000, 150_000_000)

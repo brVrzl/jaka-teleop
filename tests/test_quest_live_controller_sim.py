@@ -578,7 +578,8 @@ def test_right_touch_reuses_arm_pipeline_without_bones_and_reclutches(tmp_path):
     assert not session._index_sample.valid
     router.ingest(_touch(6, 320_000_000, grip=1, x=.2), session)
     session.control_tick(320_000_000)
-    assert session.reference_generation == 2
+    assert session.reference_generation == 3
+    assert session.arm_mapper.last_telemetry.robot_delta.position_m == (0., 0., 0.)
     assert session.report("synthetic_right_touch")["accepted_target_count"] > 0
 
 
@@ -589,26 +590,26 @@ def test_right_touch_order_restart_and_gripper_hold():
     source.ingest(_touch(1, 20_000_000))
     source.ingest(_touch(2, 40_000_000, grip=1, trigger=.2))
     source.ingest(_touch(3, 60_000_000, grip=1, trigger=.8))
-    assert source.arm_engaged
+    assert source.gripper_engaged
     assert .6 < source.gripper_target_normalized <= .621
     previous = source.gripper_target_normalized
     source.ingest(_touch(4, 80_000_000, grip=0, trigger=0))
-    assert not source.arm_engaged
+    assert not source.gripper_engaged
     assert source.gripper_target_normalized == previous
     source.poll(300_000_000)
     assert source.gripper_target_normalized == previous
     source.ingest(_touch(1, 320_000_000, grip=1, trigger=0, session_id=2))
-    assert not source.arm_engaged
+    assert not source.gripper_engaged
     assert source.gripper_target_normalized == previous
     source.ingest(_touch(2, 340_000_000, grip=0, session_id=2))
     source.ingest(_touch(3, 360_000_000, grip=1, trigger=0, session_id=2))
-    assert source.arm_engaged
+    assert source.gripper_engaged
     assert source.gripper_target_normalized == previous
     assert not source.ingest(_touch(3, 380_000_000, grip=0, session_id=2))
-    assert source.arm_engaged  # Duplicate cannot change buttons or refresh age.
+    assert source.gripper_engaged  # Duplicate cannot change buttons or refresh age.
     assert not source.ingest(_touch(100, 400_000_000, session_id=1))
     source.ingest(_touch(4, 420_000_000, grip=1, tracked=False, session_id=2))
-    assert not source.arm_engaged
+    assert not source.gripper_engaged
     assert source.gripper_target_normalized == previous
 
 
@@ -649,9 +650,68 @@ def test_right_touch_clock_fault_rotation_basis_and_no_automatic_recovery():
     reversed_clock = _touch(3, 60_000_000, grip=1)
     reversed_clock = replace(reversed_clock, payload=reversed_clock.payload.replace(b"t_ns=60000000", b"t_ns=30000000"))
     source.ingest(reversed_clock)
-    assert not source.arm_engaged
+    assert not source.gripper_engaged
     source.ingest(_touch(4, 80_000_000, grip=1))
-    assert not source.arm_engaged
+    assert not source.gripper_engaged
     source.ingest(_touch(5, 100_000_000, grip=0))
     source.ingest(_touch(6, 120_000_000, grip=1))
-    assert source.arm_engaged
+    assert source.gripper_engaged
+
+
+@pytest.mark.parametrize("interruption", [
+    "short", "no_poll", "long", "release", "session_recenter", "invalid_tracking",
+    "malformed", "clock_reversal", "old_frame", "hard_stop", "unsafe_arm",
+    "ambiguous_grip", "expired_hold",
+])
+def test_right_touch_recovery_boundaries_and_gripper_hold(tmp_path, interruption):
+    session = _session(tmp_path)
+    router = LiveQuestControllerRouter(stale_after_s=.15, input_mode="right-touch-v1")
+    router.touch.seed_gripper_from_measured(.6)
+    for seq, grip in ((1, 0), (2, 1)):
+        now = seq * 20_000_000
+        router.ingest(_touch(seq, now, grip=grip, trigger=.2), session)
+        session.control_tick(now)
+    held = session.last_accepted_target
+    assert held is not None
+    if interruption != "no_poll":
+        router.poll(200_000_000, session)
+        assert session.control_tick(200_000_000).accepted_target is None
+    if interruption == "expired_hold":
+        session.input_recovery_timeout_ns = 10_000_000
+    now = 440_000_000 if interruption == "long" else 220_000_000
+    packet = _touch(3, now, grip=1, trigger=.9, x=.2)
+    if interruption == "ambiguous_grip":
+        packet = _touch(3, now, grip=.65, x=.2)
+    elif interruption == "release":
+        # Include a release that arrives between control ticks.
+        router.ingest(_touch(3, 210_000_000, grip=0), session)
+        packet = _touch(4, now, grip=1, trigger=.9, x=.2)
+    elif interruption == "session_recenter":
+        # Sender changes session on tracking-origin/recenter and restart.
+        packet = _touch(1, now, grip=1, session_id=2, x=.2)
+    elif interruption == "invalid_tracking":
+        router.ingest(_touch(3, 210_000_000, grip=1, tracked=False), session)
+        packet = _touch(4, now, grip=1, x=.2)
+    elif interruption == "malformed":
+        router.ingest(replace(packet, payload=b"RTOUCH,broken"), session)
+    elif interruption == "clock_reversal":
+        packet = replace(packet, payload=packet.payload.replace(b"t_ns=220000000", b"t_ns=30000000"))
+    elif interruption == "old_frame":
+        packet = _touch(2, now, grip=1, x=.2)
+    elif interruption == "hard_stop":
+        session.arm_clutch.fault(210_000_000, "NATIVE_HARD_STOP")
+    elif interruption == "unsafe_arm":
+        # Plant-free path requires explicit fresh measured state + safe native status.
+        config = session.config
+        session.target_generator = SharedJakaTargetGenerator(config, mjcf_path=config.mjcf_path)
+    router.ingest(packet, session)
+    result = session.control_tick(now)
+    if interruption in {"short", "no_poll"}:
+        assert result.accepted_target is not None
+        assert session.reference_generation == 2
+        assert result.relative_hand_transform.position_m == pytest.approx((0, 0, 0), abs=1e-12)
+        assert result.accepted_target.joint_position_rad == pytest.approx(held.joint_position_rad, abs=1e-9)
+    else:
+        assert result.accepted_target is None
+        assert session.reference_generation == 1
+    assert router.touch.gripper_target_normalized == .6

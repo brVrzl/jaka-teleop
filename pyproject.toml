@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "embodied-lab"
+name = "jaka-teleop"
 version = "0.1.0"
-description = "Real-world embodied intelligence lab bring-up stack"
+description = "JAKA Robot Teleoperation & Demonstration"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

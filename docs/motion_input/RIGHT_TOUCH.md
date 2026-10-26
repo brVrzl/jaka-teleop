@@ -57,9 +57,11 @@ python tools/quest_controller_transport_gate.py --input-mode right-touch-v1 \
   --allowed-sender "$QUEST_IPV4" --duration-sec 30 --required-data-timeout-sec 20
 ```
 
-输出包含 canonical `position_m`、`orientation_xyzw`、`grip`、`trigger`、`arm_clutch`、session/sequence、掉包、重排和 stale。原始 UDP 和报告保存在 `logs/quest_transport_gate/`。在限定时间内没有有效右控制器和头部姿态时返回失败，不要求 RH56、HTS 或骨骼。
+输出包含 canonical `position_m`、`orientation_xyzw`、`grip`、`trigger`、`gripper_engaged`、`gripper_release_required`、session/sequence、掉包、重排和 stale。原始 UDP 和报告保存在 `logs/quest_transport_gate/`。在限定时间内没有有效右控制器和头部姿态时返回失败，不要求 RH56、HTS 或骨骼。
 
-依次检查：释放 Grip → `arm_clutch=false`；按住 Grip → true；左右／上下／前后平移和三个轴旋转；松开 → false；挡住控制器或退出应用 → false；恢复追踪但一直握住 Grip → 不重新接管；再次先释放再按住才接管。头部朝向仅在接管时用于既有水平参考，接管期间转头不重新映射坐标。
+输入预览不报告机械臂接管状态；`gripper_engaged` 仅表示 Trigger 电爪意图通道。该通道仍在失效后要求 Grip 释放再按下，不会因机械臂自动恢复而改变夹爪目标。机械臂状态以 session 的 `arm_clutch_state` 为准。
+
+机械臂检查：启动时先释放 Grip 再按下；同一 RTOUCH 连续性代次内短断流先 HOLD，在最后有效样本后的两倍 clutch stale 时间内（当前 300 ms），可信新帧仍明确按住 Grip 且机械臂状态安全时自动重新锚定。恢复首帧相对运动为零，不追赶丢失期间的手柄运动。真机还要求 native STOPPED_READY、新鲜 observation/worker 时间及无错误，不绕过 braking/watchdog。长断流、显式追踪无效、未知按键、源时钟异常、session/recenter、报警或硬停止不能自动恢复。详见[架构](../architecture/SYSTEM_ARCHITECTURE.md)。头部朝向仍只在参考捕获时用于水平参考。
 
 ## 仿真和操作映射
 

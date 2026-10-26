@@ -513,6 +513,8 @@ class SmoothQuestJakaSession:
         self,
         now_ns: int,
         fresh_measured_joint_position_rad: Sequence[float] | None = None,
+        *,
+        automatic_reanchor_safe: bool = False,
     ) -> ArmControlTickResult:
         tick_started_ns = time.perf_counter_ns()
         timing_values = [0] * len(CONTROL_TIMING_FIELDS)
@@ -547,16 +549,24 @@ class SmoothQuestJakaSession:
                 if self._input_recovery_started_ns is None:
                     self._input_recovery_started_ns = now_ns
                     self.input_recovery_count += 1
-            elif self._input_recovery_started_ns is not None:
+            recovery_elapsed_ns = (
+                0 if self._input_recovery_started_ns is None
+                else max(0, now_ns - self._input_recovery_started_ns)
+            )
+            if (self.input_recovery_timeout_ns > 0
+                    and recovery_elapsed_ns > self.input_recovery_timeout_ns):
+                self._input_recovery_persistent_hold = True
+                self.input_recovery_timeout_count += 1
+                self.arm_clutch.fault(now_ns, INPUT_RECOVERY_TIMEOUT_REASON)
+                self.arm_mapper.clear()
+                self._input_recovery_started_ns = None
+            elif arm_stream_valid and self._input_recovery_started_ns is not None:
                 self._input_recovery_started_ns = None
                 self.input_recovery_success_count += 1
 
         quest_input_finished_ns = time.perf_counter_ns()
 
         if not self.left_controller_valid:
-            if self.arm_clutch.state is not ArmClutchState.TRACKING_FAULT:
-                self.arm_clutch.fault(now_ns, "LEFT_CONTROLLER_STALE_OR_INVALID")
-                self.arm_mapper.clear()
             if self.hand_clutch.state is not HandClutchState.TRACKING_FAULT:
                 self.hand_clutch.fault(now_ns, "LEFT_CONTROLLER_STALE_OR_INVALID")
                 self._clear_hand_reference()
@@ -564,10 +574,6 @@ class SmoothQuestJakaSession:
         # Wrist loss belongs to the arm channel. Landmark-only loss belongs to
         # neither clutch state: H2 holds the last hand command without
         # extrapolation while a valid index-held arm may continue.
-        if not right.tracking_valid and self.arm_clutch.state is ArmClutchState.ENGAGED:
-            self.arm_clutch.fault(now_ns, "RIGHT_WRIST_TRACKING_LOST")
-            self.arm_mapper.clear()
-
         clutch_started_ns = quest_input_finished_ns
         arm_action = (
             self.arm_clutch.step(
@@ -576,6 +582,12 @@ class SmoothQuestJakaSession:
                 controller_valid=self.left_controller_valid,
                 continuous_inputs_valid=wrist_valid,
                 capture_inputs_valid=wrist_valid and head_valid,
+                automatic_reanchor_safe=(
+                    (isinstance(self.target_generator, JakaMujocoSimulation)
+                     or (automatic_reanchor_safe and fresh_measured_joint_position_rad is not None))
+                    and not self._input_recovery_persistent_hold
+                    and self._input_recovery_hard_stop_reason is None
+                ),
             )
             if (
                 self.arm_input_enabled
@@ -638,6 +650,11 @@ class SmoothQuestJakaSession:
                 if fresh_measured is not None
                 else tuple(float(value) for value in self.target_generator.last_safe_joint_target)
             )
+        if (arm_action is ClutchAction.CAPTURE_ARM_REFERENCE
+                and self.arm_clutch.transitions[-1].reason == "SHORT_INPUT_GAP_REANCHOR"):
+            # Capture the actual new input, never interpolate across a dropout.
+            self.buffer.clear()
+            state = replace(state, right=replace(state.right, wrist_pose=raw_quest_wrist))
         desired = self._arm_target(state, arm_action, now_ns)
         mapping_finished_ns = time.perf_counter_ns()
         timing_values[_CONTROL_TIMING_INDEX["mapping_duration_ns"]] = (
@@ -673,22 +690,6 @@ class SmoothQuestJakaSession:
             ensure_detailed_record()
             self._hold_rejected_started_ns = None
             heartbeat_applied = False
-            recovery_elapsed_ns = (
-                None
-                if self._input_recovery_started_ns is None
-                else max(0, now_ns - self._input_recovery_started_ns)
-            )
-            recovery_timed_out = bool(
-                recovery_elapsed_ns is not None
-                and self.input_recovery_timeout_ns > 0
-                and recovery_elapsed_ns > self.input_recovery_timeout_ns
-            )
-            if recovery_timed_out and not self._input_recovery_persistent_hold:
-                self._input_recovery_persistent_hold = True
-                self.input_recovery_timeout_count += 1
-                self.arm_clutch.fault(now_ns, INPUT_RECOVERY_TIMEOUT_REASON)
-                self.arm_mapper.clear()
-                self._input_recovery_started_ns = None
             recovery_hold = bool(
                 self.arm_input_enabled
                 and self.arm_clutch.state is ArmClutchState.TRACKING_FAULT

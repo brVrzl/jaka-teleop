@@ -1,6 +1,8 @@
 <div align="center">
 
-# Embodied Hand Lab
+# jaka-teleop
+
+**JAKA Robot Teleoperation & Demonstration**
 
 **从 Quest 输入到安全遥操作，再到可审核的机器人数据。**
 

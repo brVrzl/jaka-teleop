@@ -22,6 +22,8 @@ class AnalogClutchSample:
     sequence_number: int
     valid: bool = True
     source_timestamp_ns: int | None = None
+    # Supplied only by transports with explicit validity and session continuity.
+    continuity_generation: int | None = None
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.value) or not 0.0 <= self.value <= 1.0:
@@ -145,6 +147,7 @@ class ArmClutchMachine:
         self.fault_history: list[ClutchFault] = []
         self.active_fault: ClutchFault | None = None
         self.cycle_count = 0
+        self._held_sample: AnalogClutchSample | None = None
 
     def step(
         self,
@@ -154,14 +157,21 @@ class ArmClutchMachine:
         controller_valid: bool,
         continuous_inputs_valid: bool,
         capture_inputs_valid: bool,
+        automatic_reanchor_safe: bool = False,
     ) -> ClutchAction:
         fresh = controller_valid and sample.fresh(now_ns, self.stale_after_ns)
+        held = self._held_sample
+        if held is not None and sample.continuity_generation != held.continuity_generation:
+            self.fault(now_ns, "INPUT_CONTINUITY_CHANGED")
+        # Detect gaps even when the caller did not tick during the outage.
+        if (self.state is ArmClutchState.ENGAGED and held is not None
+                and held.continuity_generation is not None
+                and sample.host_receive_monotonic_ns - held.host_receive_monotonic_ns > self.stale_after_ns):
+            self.fault(now_ns, "ARM_INPUT_GAP", recoverable=True)
         observation = self.trigger.observe(sample, fresh=fresh)
-        if self.state not in {
-            ArmClutchState.ARMED_WAITING_FOR_RELEASE,
-            ArmClutchState.TRACKING_FAULT,
-        } and not fresh:
-            self.fault(now_ns, "ARM_TRIGGER_STALE_OR_INVALID")
+        if self.state is not ArmClutchState.TRACKING_FAULT and not fresh:
+            self.fault(now_ns, "ARM_TRIGGER_STALE_OR_INVALID",
+                       recoverable=now_ns - sample.host_receive_monotonic_ns > self.stale_after_ns)
             return ClutchAction.FREEZE
         if self.state is ArmClutchState.ENGAGED and not continuous_inputs_valid:
             self.fault(now_ns, "RIGHT_WRIST_STALE_OR_INVALID")
@@ -173,11 +183,27 @@ class ArmClutchMachine:
                 self._transition(now_ns, ArmClutchState.DISENGAGED, "VALID_RELEASE_OBSERVED")
             return ClutchAction.FREEZE
         if self.state is ArmClutchState.TRACKING_FAULT:
+            held = self._held_sample
+            if (held is not None and held.continuity_generation is not None
+                    and sample.continuity_generation == held.continuity_generation
+                    and fresh and observation.new_sample
+                    and sample.sequence_number > held.sequence_number
+                    and sample.host_receive_monotonic_ns > held.host_receive_monotonic_ns
+                    and 0 <= now_ns - held.host_receive_monotonic_ns <= 2 * self.stale_after_ns
+                    and sample.value >= self.trigger.pressed_at
+                    and observation.pressed is True and capture_inputs_valid
+                    and automatic_reanchor_safe):
+                self.active_fault = None
+                self._held_sample = sample
+                self._transition(now_ns, ArmClutchState.REFERENCE_CAPTURE, "SHORT_INPUT_GAP_REANCHOR")
+                return ClutchAction.CAPTURE_ARM_REFERENCE
+            if observation.valid and observation.pressed is False:
+                self._held_sample = None
             if (
                 observation.valid
                 and observation.pressed is False
                 and self.active_fault is not None
-                and sample.host_receive_monotonic_ns > self.active_fault.timestamp_monotonic_ns
+                and sample.host_receive_monotonic_ns >= self.active_fault.timestamp_monotonic_ns
                 and capture_inputs_valid
                 and controller_valid
             ):
@@ -189,12 +215,15 @@ class ArmClutchMachine:
                 if not fresh or not capture_inputs_valid:
                     self.fault(now_ns, "ARM_REFERENCE_INPUT_INVALID")
                     return ClutchAction.FREEZE
+                self._held_sample = sample
                 self._transition(now_ns, ArmClutchState.REFERENCE_CAPTURE, "ARM_PRESS_EDGE")
                 return ClutchAction.CAPTURE_ARM_REFERENCE
             return ClutchAction.FREEZE
         if observation.pressed is False:
+            self._held_sample = None
             self._transition(now_ns, ArmClutchState.DISENGAGED, "ARM_TRIGGER_RELEASED")
             return ClutchAction.FREEZE
+        self._held_sample = sample
         return ClutchAction.UPDATE
 
     def reference_captured(self, now_ns: int) -> None:
@@ -203,10 +232,13 @@ class ArmClutchMachine:
         self.cycle_count += 1
         self._transition(now_ns, ArmClutchState.ENGAGED, "ARM_REFERENCE_CAPTURED")
 
-    def fault(self, now_ns: int, reason: str) -> None:
+    def fault(self, now_ns: int, reason: str, *, recoverable: bool = False) -> None:
+        if not recoverable:
+            self._held_sample = None
         self.active_fault = ClutchFault(now_ns, "arm", reason)
         self.fault_history.append(self.active_fault)
-        self.trigger.require_release()
+        if self._held_sample is None:
+            self.trigger.require_release()
         self._transition(now_ns, ArmClutchState.TRACKING_FAULT, reason)
 
     def _transition(self, now_ns: int, state: ArmClutchState, reason: str) -> None:

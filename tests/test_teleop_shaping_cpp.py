@@ -117,3 +117,35 @@ def test_cpp_hard_stop_preempts_and_emits_no_further_command() -> None:
         cpp.hard_stop(StopReason.CONTROLLER_ALARM, start + 1)
         with pytest.raises(RuntimeError, match="TERMINAL_NO_OUTPUT"):
             cpp.tick(start + PERIOD_NS)
+
+
+def test_first_reengaged_cpp_output_is_continuous_with_measured_state(
+    teleop_shaping_library: Path,
+) -> None:
+    q = (0.1, -0.2, 0.3, -0.1, 0.2, -0.3)
+    with CppReferenceShaper(teleop_shaping_library) as shaper:
+        shaper.initialize(
+            position_rad=q,
+            velocity_rad_s=(0.0,) * 6,
+            acceleration_rad_s2=(0.0,) * 6,
+            minimum_position_rad=(-3.0,) * 6,
+            maximum_position_rad=(3.0,) * 6,
+            maximum_velocity_rad_s=(math.pi,) * 6,
+            maximum_acceleration_rad_s2=(4 * math.pi,) * 6,
+            maximum_jerk_rad_s3=(50.0,) * 6,
+            now_ns=2_000_000_000,
+            safety_epoch=2,
+        )
+        shaper.replace_target(
+            q,
+            sequence=1,
+            source_monotonic_ns=2_000_000_000,
+            accepted_monotonic_ns=2_000_000_000,
+            valid_until_monotonic_ns=3_000_000_000,
+        )
+        first = shaper.tick(2_000_000_000)
+    joint_delta = max(abs(left - right) for left, right in zip(first.position_rad, q))
+    assert first.output_mode is OutputMode.ACTIVE_TRACKING
+    assert joint_delta == 0.0
+    assert max(abs(value) for value in first.velocity_rad_s) == 0.0
+    assert max(abs(value) for value in first.acceleration_rad_s2) == 0.0

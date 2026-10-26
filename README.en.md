@@ -1,4 +1,6 @@
-# Embodied Hand Lab
+# jaka-teleop
+
+**JAKA Robot Teleoperation & Demonstration**
 
 **Quest input, guarded robot teleoperation, and review-first RGB-D datasets.**
 

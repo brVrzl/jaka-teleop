@@ -91,7 +91,9 @@ def parse_right_touch_datagram(payload: bytes) -> RightTouchPacket:
 
 
 class RightTouchInput:
-    """Ordered pose + hold-to-run facts reused by preview and target generation.
+    """Ordered pose/buttons and independent gripper intent.
+
+    Arm engagement belongs exclusively to ArmClutchMachine in the session.
 
     The gripper value is a command intention, never measured feedback.  It starts
     unavailable. New sessions/faults require a fresh Grip release then press;
@@ -101,13 +103,13 @@ class RightTouchInput:
                  pressed_at: float = 0.75) -> None:
         self.provider = ControllerProvider(stale_after_s=stale_after_s,
                                            source_pause_after_s=stale_after_s)
-        self.clutch = AnalogHoldToRun(pressed_at=pressed_at, released_at=released_at)
+        self._gripper_clutch = AnalogHoldToRun(pressed_at=pressed_at, released_at=released_at)
         self.released_at = released_at
         self._session: int | None = None
+        self._continuity_generation = 0
         self._host_sequence = 0
         self._accepted_packet: RightTouchPacket | None = None
-        self._release_required = True
-        self.arm_engaged = False
+        self.gripper_engaged = False
         self.malformed = 0
         self.error: str | None = None
         self.canonical: CanonicalQuestState | None = None
@@ -125,6 +127,7 @@ class RightTouchInput:
         try:
             packet = parse_right_touch_datagram(datagram.payload)
         except ControllerPacketError as exc:
+            self._continuity_generation += 1
             self.malformed += 1
             self.error = str(exc)
             self.provider.invalidate("malformed_right_touch")
@@ -135,15 +138,20 @@ class RightTouchInput:
         accepted = state.accepted_count > previous.accepted_count
         if accepted:
             self.session_changed = self._session != packet.session_id
+            if (self.session_changed or not packet.facts_valid
+                    or (state.source_interval_ns is not None and
+                        (state.source_interval_ns <= 0 or state.source_interval_ns > 2 * self.provider.stale_after_ns))
+                    or (self._accepted_packet is not None
+                        and self._accepted_packet.grip_trigger > self.released_at
+                        and packet.grip_trigger <= self.released_at)):
+                self._continuity_generation += 1
             if self.session_changed:
                 self._session = packet.session_id
-                self._release_required = True
-                self.clutch.require_release()
+                self._gripper_clutch.require_release()
             # A long receive gap must invalidate even if no polling ran between
             # datagrams (e.g. replay or a delayed producer).
             if previous.stale or state.source_pause or (state.source_interval_ns is not None and state.source_interval_ns <= 0):
-                self._release_required = True
-                self.clutch.require_release()
+                self._gripper_clutch.require_release()
             if state.source_interval_ns is not None and state.source_interval_ns <= 0:
                 self.provider.invalidate("source_clock_not_forward")
             self._accepted_packet = packet
@@ -161,25 +169,22 @@ class RightTouchInput:
             return
         valid = state.controller_valid
         if not valid:
-            self._release_required = True
-            self.clutch.require_release()
-        elif self._release_required and packet.grip_trigger <= self.released_at:
-            self._release_required = False
-        valid = valid and not self._release_required
+            self._gripper_clutch.require_release()
         sample = AnalogClutchSample(packet.grip_trigger, state.host_receive_monotonic_ns,
                                    self._host_sequence, valid=valid,
-                                   source_timestamp_ns=packet.source_timestamp_ns)
-        observation = self.clutch.observe(sample, fresh=valid)
-        was_engaged = self.arm_engaged
-        self.arm_engaged = valid and observation.pressed and observation.released_observed
+                                   source_timestamp_ns=packet.source_timestamp_ns,
+                                   continuity_generation=self._continuity_generation)
         self.arm_sample = sample
+        observation = self._gripper_clutch.observe(sample, fresh=valid)
+        was_engaged = self.gripper_engaged
+        self.gripper_engaged = bool(valid and observation.pressed and observation.released_observed)
         # Relative Trigger capture preserves the target on every re-grasp or
         # reconnect. No stale frame, release, loss, or shutdown emits "open".
-        if self.arm_engaged and not was_engaged:
+        if self.gripper_engaged and not was_engaged:
             self._trigger_reference = packet.index_trigger
             self._gripper_reference = self.gripper_target_normalized
             self._last_gripper_ns = now_ns
-        elif self.arm_engaged and self._last_gripper_ns is not None:
+        elif self.gripper_engaged and self._last_gripper_ns is not None:
             dt = min(max(0.0, (now_ns - self._last_gripper_ns) / 1e9), 0.1)
             trigger = _deadzone(packet.index_trigger)
             reference = _deadzone(self._trigger_reference or 0.0)
@@ -198,7 +203,7 @@ class RightTouchInput:
 
     def seed_gripper_from_measured(self, closed_fraction: float) -> None:
         """Explicit pre-engagement seed: 0=open, 1=closed, never a command."""
-        if self.arm_engaged:
+        if self.gripper_engaged:
             raise ValueError("seed the gripper only while disengaged")
         if not math.isfinite(closed_fraction) or not 0 <= closed_fraction <= 1:
             raise ValueError("measured gripper closed fraction must be in [0,1]")
@@ -233,7 +238,7 @@ class RightTouchInput:
             "orientation_xyzw": None if packet is None else packet.pose.orientation_xyzw,
             "grip": None if packet is None else packet.grip_trigger,
             "trigger": None if packet is None else packet.index_trigger,
-            "arm_clutch": self.arm_engaged, "arm_release_required": self._release_required,
+            "gripper_engaged": self.gripper_engaged, "gripper_release_required": not self._gripper_clutch.released_observed,
             "head_valid": bool(packet and packet.head_tracked),
             "gripper_target_normalized": self.gripper_target_normalized,
             "gripper_target_is_feedback": False, "gap_events": state.gap_event_count,
