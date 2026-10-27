@@ -21,8 +21,11 @@ RGB-D, robot state, actions and timing can be recorded as episodes for review be
 
 ## Start without hardware
 
+Use local `dev`, tracking `origin/dev`, for everyday development; `main` is the stable branch.
+Historical research is retained under `archive/` tags.
+
 ```bash
-git clone https://github.com/brVrzl/jaka-teleop.git
+git clone --branch dev https://github.com/brVrzl/jaka-teleop.git
 cd jaka-teleop
 python3 -m venv .venv
 .venv/bin/python -m pip install -e '.[simulation]'

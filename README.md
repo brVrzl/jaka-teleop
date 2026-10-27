@@ -28,8 +28,11 @@ JAKA · MuJoCo · Quest · RGB-D · RH56 / DH 适配
 
 ## 最短起步：无需连接设备
 
+日常开发统一使用本地 `dev`，跟踪 `origin/dev`；`main` 保留为稳定分支。
+历史研究分支以 `archive/` 标签保留，按需查看，不作为日常开发入口。
+
 ```bash
-git clone https://github.com/brVrzl/jaka-teleop.git
+git clone --branch dev https://github.com/brVrzl/jaka-teleop.git
 cd jaka-teleop
 python3 -m venv .venv
 .venv/bin/python -m pip install -e '.[simulation]'

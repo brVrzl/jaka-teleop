@@ -54,6 +54,7 @@
 
 ## Git and worktree discipline
 
+- Use `dev` as the shared local and remote development branch. Keep routine work on `dev`; create another branch or worktree only when a specific isolation need or user request requires it. Keep `main` as the stable branch and merge into it only when explicitly requested.
 - Inspect the current branch, worktree, and `git status` before broad edits.
 - Preserve unrelated user changes and intentionally untracked work.
 - Keep commits scoped to the requested change.

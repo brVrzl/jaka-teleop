@@ -1,6 +1,7 @@
 # Mac / Quest 右 Touch 交接
 
 当前 XRobo 通信的部署和恢复入口：[XRobo PC Service](XROBO_SERVICE.md)。下文含历史交接记录。
+日常开发统一使用 `dev` / `origin/dev`；下文历史分支名仅用于说明当时的记录。
 
 ## 当前接力：阶段二发送端（2026-10-26）
 
@@ -229,10 +230,10 @@ Quest 的 PC Service 填 `10.24.1.68`，TCP 63901；本机 SDK 为 127.0.0.1:600
 
 ## 工作区与安装
 
-尚未合并 main，新克隆必须指定工作分支：
+新克隆统一指定开发分支：
 
 ```bash
-git clone --single-branch --branch work/jaka-teleop-recovery \
+git clone --single-branch --branch dev \
   https://github.com/brVrzl/jaka-teleop.git
 cd jaka-teleop
 ```
@@ -319,8 +320,8 @@ Thor 的 9000/9001 当前查询无监听。Mac 输入验收后，可由 user01 �
 ```bash
 cd ~/projects/embodied-hand-lab
 git status --short --branch
-# 保留本地修改；在工作分支且干净时更新
-git pull --ff-only origin work/thor-onboarding-quest-dh
+# 保留本地修改；在 dev 分支且干净时更新
+git pull --ff-only origin dev
 source ~/.venvs/embodied-hand-lab/bin/activate
 ss -lunp | grep -E ':9000|:9001' || true
 python tools/trossen_input_observer.py --bind 10.24.1.68 \
