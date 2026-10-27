@@ -1,0 +1,13 @@
+[Unit]
+Description=XRoboToolkit PC Service (communication only)
+
+[Service]
+Type=exec
+EnvironmentFile=%h/.config/jaka-teleop/xrobo-pc.env
+ExecStart=/bin/bash -c 'exec /bin/bash "${XROBO_REPO}/scripts/xrobo_pc_service.sh" run'
+Restart=no
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

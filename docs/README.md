@@ -12,7 +12,7 @@
 | 首次部署 | [安装与 Thor 部署](setup/INSTALLATION.md) | 自己的环境、CLI、smoke、native 构建 |
 | 机器迁移 | [配置](configuration/CONFIGURATION.md) | 本机 YAML、设备角色、输出目录 |
 | 了解能力 | [当前能力](CAPABILITIES.md)、[系统架构](architecture/SYSTEM_ARCHITECTURE.md) | 知道各入口与控制边界 |
-| 输入确认 | [Quest 传输](motion_input/QUEST_CONTROLLER_TRANSPORT_HOST.md)、[UMIP 协议](motion_input/UMIP_PROTOCOL.md) | 确认实际数据、时效和来源 |
+| 输入确认 | [XRobo 服务部署与排查](setup/XROBO_SERVICE.md)、[Quest 备用传输](motion_input/QUEST_CONTROLLER_TRANSPORT_HOST.md)、[UMIP 协议](motion_input/UMIP_PROTOCOL.md) | 确认实际数据、时效和来源 |
 | 离线运行 | [仿真与 replay](simulation/SIMULATION.md) | 不连接执行器的验证 |
 | 真机操作 | [设备检查](operation/REAL_ROBOT.md)、[遥操作](operation/TELEOPERATION.md) | 先只读，再执行明确的物理操作 |
 | 数据工作流 | [采集](data/DATA_COLLECTION.md)、[数据集](data/DATASET.md) | staging、审核、派生训练 view |

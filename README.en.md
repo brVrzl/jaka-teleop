@@ -39,7 +39,7 @@ Training submodules and model weights are not required for this quick start.
 | --- | --- |
 | Configure a new machine | [Configuration](docs/configuration/CONFIGURATION.md) |
 | Simulate or replay | [Simulation](docs/simulation/SIMULATION.md) |
-| Inspect Quest transport | [Right Touch](docs/motion_input/RIGHT_TOUCH.md), [legacy input gate](docs/motion_input/QUEST_CONTROLLER_TRANSPORT_HOST.md) |
+| Restore XRobo Connect / inspect Quest input | [XRobo deployment and troubleshooting](docs/setup/XROBO_SERVICE.md), [native contract](docs/motion_input/XROBO_NATIVE.md), [alternate Right Touch](docs/motion_input/RIGHT_TOUCH.md) |
 | Check and operate physical hardware | [Real robot](docs/operation/REAL_ROBOT.md), [teleoperation](docs/operation/TELEOPERATION.md), [safety](docs/safety/REAL_HARDWARE_SAFETY.md) |
 | Collect and review episodes | [Collection](docs/data/DATA_COLLECTION.md), [datasets](docs/data/DATASET.md) |
 | Train | [ACT](docs/training/ACT.md), [π0.5](docs/training/PI05.md) |

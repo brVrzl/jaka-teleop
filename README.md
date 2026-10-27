@@ -49,12 +49,17 @@ python3 -m venv .venv
 | 在新机器上安装并自检 | [首次安装](docs/setup/INSTALLATION.md) | 离线 |
 | 修改 IP、网卡、末端、相机和输出目录 | [配置说明](docs/configuration/CONFIGURATION.md) | 本地 YAML |
 | 运行模型、回放已录输入 | [仿真与 replay](docs/simulation/SIMULATION.md) | 无执行器 |
-| 确认 Quest 实际发送的数据 | [右 Touch](docs/motion_input/RIGHT_TOUCH.md) · [旧 HTS/CTRL](docs/motion_input/QUEST_CONTROLLER_TRANSPORT_HOST.md) | 仅输入接收 |
+| 恢复 XRobo Connect、确认 Quest 数据 | [XRobo 服务部署与排查](docs/setup/XROBO_SERVICE.md) · [原生输入契约](docs/motion_input/XROBO_NATIVE.md) · [备用右 Touch](docs/motion_input/RIGHT_TOUCH.md) | 仅通信与输入接收 |
 | 检查 JAKA，再进行遥操作 | [真机检查](docs/operation/REAL_ROBOT.md) → [遥操作](docs/operation/TELEOPERATION.md) | 分阶段、显式启用 |
 | 用双相机采集、审核 episode | [采集流程](docs/data/DATA_COLLECTION.md) → [数据集](docs/data/DATASET.md) | 保留原始数据 |
 | 训练或处理资产 | [ACT](docs/training/ACT.md) · [π0.5](docs/training/PI05.md) · [安装角色](docs/setup/INSTALLATION.md#按角色安装) | 独立依赖 |
 
 ## 一条控制链路
+
+Thor 的 XRobo 通信检查与恢复：`bash scripts/xrobo_pc_service.sh status` / `start`。
+首次使用先按[部署说明](docs/setup/XROBO_SERVICE.md)注册用户服务。Quest 的 PC Service 填
+`10.24.1.68`，使用 TCP 63901；UDP 9000 无监听不代表 XRobo 故障。
+PC Service 与只读接收器分开启动，连接成功后还需验证真实 Tracking 回调。
 
 ```mermaid
 flowchart LR

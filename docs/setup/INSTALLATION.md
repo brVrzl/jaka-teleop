@@ -143,7 +143,9 @@ cp configs/data_collection/thor.example.yaml configs/local/thor.yaml
    已有正确路由时无需运行配置脚本；不要清空接口地址。使用 `setup_jaka_lan2_route.sh` 前阅读其 `--help`。
 2. **JAKA**：先用只读诊断器；收集实际机型、控制柜/固件/SDK/TIO 版本、状态、关节、TCP、工具/用户坐标系及告警。
    `Mini2` 配置文件名不能代替机型与运动学比对。换装 DH 后需重新核对 TCP、负载和末端碰撞几何。
-3. **Quest**：确认安装包名称与版本、发送端源码及构建来源，先跑[仅输入 gate](../motion_input/QUEST_CONTROLLER_TRANSPORT_HOST.md)。
+3. **Quest**：确认安装包名称与版本、发送端源码及构建来源。XRobo 先按
+   [PC Service 部署与恢复](XROBO_SERVICE.md)启动通信服务，再用现有观察器验证原生帧；
+   HTS/RTOUCH 使用[仅输入 gate](../motion_input/QUEST_CONTROLLER_TRANSPORT_HOST.md)。
    仓库没有可直接安装的 Quest APK，不能假定已有应用包含右手 Touch 位姿。保留抓包/日志核对协议，再做仿真。
 4. **DH**：当前优先链路为 `Thor → 网络 → JAKA SDK → 末端 TIO → 电爪`。
    铭牌型号、供电、针脚、串口电平/协议及固件必须按实物和对应厂商资料确认；不复用 RH56 的 CH341 配置。

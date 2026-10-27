@@ -1,5 +1,7 @@
 # Mac / Quest 右 Touch 交接
 
+当前 XRobo 通信的部署和恢复入口：[XRobo PC Service](XROBO_SERVICE.md)。下文含历史交接记录。
+
 ## 当前接力：阶段二发送端（2026-10-26）
 
 **本轮最新取舍：操作者已明确接受“成熟应用原生协议只读验收”，缺失字段如实列出，
@@ -205,28 +207,20 @@ timeStampNs 为源 UTC 时钟，predictTime 为源应用 elapsed 微秒；没有
 
 ### XRobo Thor 重启入口
 
-使用可登录的 `thor` 账户，不改变 user01 私有目录。官方 PC Service headless arm64 v1.0.0
-commit `6386009475369615fa984bca0a6e9902cd81eb2a`，deb SHA256
-`532c605dfa1a02b05b7c285b856c91771c78623cded30ef5b16ea371de49ed5f`。
-已在缓存目录解包，另局部解包 Ubuntu libicu70 70.1-2ubuntu1，未系统安装或改全局库。
-两个 Thor 终端分别执行（日志必须用新文件名）：
+部署、启动/停止、日志和重启恢复统一维护在 [XRobo PC Service 运维说明](XROBO_SERVICE.md)。
+在实际部署账户的仓库根目录执行：
 
 ```bash
-cd ~/.cache/embodied-hand-lab-xrobo/unpacked/opt/apps/roboticsservice
-export LD_LIBRARY_PATH="$PWD:$PWD/lib:$PWD/SDK/arm64:$HOME/.cache/embodied-hand-lab-xrobo/icu70/usr/lib/aarch64-linux-gnu"
-export QT_PLUGIN_PATH="$PWD/plugins"
-./RoboticsServiceProcess
+bash scripts/xrobo_pc_service.sh status
+bash scripts/xrobo_pc_service.sh start
 ```
 
-```bash
-cd ~/.cache/embodied-hand-lab-xrobo
-python3 xrobo_input_observer.py \
-  --sdk "$PWD/unpacked/opt/apps/roboticsservice/SDK/arm64/libPXREARobotSDK.so" \
-  --log "$PWD/raw-NEW.jsonl"
-```
-
-Mac 通过 `ssh thor` 启动/观察即可。XRobo 使用 TCP 63901 和 UDP 50087 发现，不套用 Trossen UDP9000 协议。
-下面保留 Trossen 的安装、失败证据和可复用入口；其零收包状态不代表 XRobo 状态。
+首次使用先按该说明注册用户服务；不要同时运行历史后台实例。
+Quest 的 PC Service 填 `10.24.1.68`，TCP 63901；本机 SDK 为 127.0.0.1:60061。
+当前官方服务实测发现广播目标为 UDP **29888**，更正此前此处的 50087；
+这不是 Thor 的必需监听端口，也不套用 Trossen UDP9000/9001 协议。
+只读采集统一使用仓库 `tools/xrobo_input_observer.py`，不使用缓存里的旧脚本副本。
+下面保留历史发送端安装与失败证据，其零收包状态不代表 XRobo 状态。
 
 [设备记录](DEVICE_STATUS.md) · [现有右 Touch 接口](../motion_input/RIGHT_TOUCH.md) · [备用发送端补丁](../../quest_sender/README.md)
 

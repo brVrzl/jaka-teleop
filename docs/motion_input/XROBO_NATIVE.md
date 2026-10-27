@@ -1,5 +1,7 @@
 # XRobo Quest 原生只读输入契约
 
+服务部署、端口、重启恢复与 Connect 分层排查见[XRobo PC Service](../setup/XROBO_SERVICE.md)。
+
 2026-10-26 Mac 补测，使用原版 XRoboToolkit-Quest v1.0.1 / PC Service v1.0.0。
 这是已观察到的原生事实及限制，不是 RTOUCH validity 或机器人控制授权。
 未修改 Unity、SDK 观察器或 Thor 控制链。

@@ -1,5 +1,8 @@
 # Troubleshooting
 
+XRobo Connect / PC Service: [部署、状态命令与分层排查](setup/XROBO_SERVICE.md)。
+XRobo uses TCP 63901 and local SDK TCP 60061; UDP 9000 belongs to other senders.
+
 ## English
 
 Start with read-only checks:
